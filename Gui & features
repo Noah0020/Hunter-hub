@@ -1,5 +1,5 @@
 -- hunter hub
--- esp / stam / autoblock / hdt / aim / guest / box / stab / misc
+-- esp / stam / autoblock / hdt / aim / box / stab / misc
 
 repeat task.wait() until game:IsLoaded()
 
@@ -44,7 +44,7 @@ local PUNCH_BUF = buildBuffer("Punch")
 local lastBlockFire = 0
 local BLOCK_COOLDOWN = 0.55
 
-local HDT, AIM, AbilityHook, GUESTAIM, AUTOGEN, STAB, AZ, HBE, FacingVisual
+local HDT, AIM, AbilityHook, AUTOGEN, STAB, AZ, HBE, FacingVisual
 
 local function fireBlock()
     local now = tick()
@@ -181,14 +181,14 @@ local TRIGGER_ANIMS = {
     "114506382930939","127245564598429","99829427721752","138938529389204",
     "111647315359080","92567970681901","124269076578545","94958041603347",
     "109667959938617","130958529065375","118298475669935","126830014841198",
-    "126355327951215","121086746534252","18885909645","98456918873918",
-    "105458270463374","83829782357897","125403313786645","82113744478546",
+    "121086746534252","18885909645","98456918873918",
+    "105458270463374","83829782357897","125403313786645",
     "70371667919898","99135633258223","7167027849946","109230267448394",
     "139835501033932","126996426760253","88451353906104","106538427162796",
     "122709416391891","139309647473555","90620531468240","91509234639766",
     "99824350842479","126171487400618","101101433684051","106860049270347",
     "70483423693126","126727756047566","137642639873297","77375846492436",
-    "126681776859538","129976080405072","121293883585738","81639435858902",
+    "129976080405072","121293883585738","81639435858902",
     "137314737492715","92173139187970","108196996477620","90819435118493",
     "123172382755876","87259391926321","99100240941590","72685103823181",
     "81905101227053","113936304594883","140703210927645","136007065400978",
@@ -563,8 +563,6 @@ RunService.RenderStepped:Connect(function()
     if not targetPos then return end
 
     if forced then
-        -- Hard snap like the reference script: overwrite HRP CFrame several
-        -- times per frame so replication doesn't fight back.
         local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
         if myRoot then
             myRoot.AssemblyAngularVelocity = Vector3.zero
@@ -577,7 +575,6 @@ RunService.RenderStepped:Connect(function()
                 myRoot.CFrame = cf
             end
         end
-        -- Also drive the camera toward the target so gun raycasts follow.
         pcall(function()
             Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
         end)
@@ -590,33 +587,20 @@ end)
 AbilityHook = {
     Enabled = true,
 
-    -- Lock values match the wiki-documented windup + a small buffer
-    -- so aim stays locked through the entire activation and hit frame.
     StunAbilities = {
-        Chance     = { Button = "Shoot",   Lock = 1.20, Ability = "AimGun" },   -- 1.0s aim + 0.2 buffer
-        Shedletsky = { Button = "Slash",   Lock = 0.80, Ability = "Slash" },    -- 0.575s startup + 0.225 buffer
-        TwoTime    = { Button = "Dagger",  Lock = 0.50, Ability = "Stab" },     -- 0.3s charge + 0.2 buffer
-        Guest1337  = { Button = "Punch",   Lock = 0.90, Ability = "Punch" },    -- 0.7s windup + 0.2 buffer
-        JaneDoe    = { Button = "Hatchet", Lock = 0.95, Ability = "Axe" },      -- 0.75s prep + 0.2 buffer
+        Chance     = { Button = "Shoot",   Lock = 1.20, Ability = "AimGun" },
+        Shedletsky = { Button = "Slash",   Lock = 0.80, Ability = "Slash" },
+        TwoTime    = { Button = "Dagger",  Lock = 0.50, Ability = "Stab" },
+        Guest1337  = { Button = "Punch",   Lock = 0.90, Ability = "Punch" },
+        JaneDoe    = { Button = "Hatchet", Lock = 0.95, Ability = "Axe" },
     },
 
-    -- Global multiplier applied on top of every Lock value above
     LockMultiplier = 1.0,
-
-    -- Guest1337 punch animation IDs — triggering aim on these guarantees
-    -- the lock starts the moment the punch actually begins, independent of
-    -- whether the UI button press was detected.
-    GuestPunchAnimIds = {
-        ["87716278630738"] = true,
-        ["87259391926321"] = true,
-        ["86096387000557"] = true,
-    },
 
     Hooked   = {},
     LastTap  = {},
     Debounce = 0.05,
     _uiWatcher = nil,
-    _guestAnimConn = nil,
 }
 
 local AH_LOWER_MAP = {}
@@ -639,7 +623,6 @@ local function ahFireButtonAim(btn, cfg)
     if last and now - last < AbilityHook.Debounce then return end
     AbilityHook.LastTap[btn] = now
 
-    -- Button hook is independent of the AIM master toggle
     if AIM then
         local dur = (cfg.Lock or 0.6) * (AbilityHook.LockMultiplier or 1.0)
         AIM.ForceAimNow(dur, cfg.Ability)
@@ -652,25 +635,34 @@ local function ahHookButton(btn, cfg)
     AbilityHook.Hooked[btn] = true
 
     local function fire() ahFireButtonAim(btn, cfg) end
+
+    -- Only fire on a completed click/tap release. Activated only fires when
+    -- the press started AND ended on the button, so grazing won't trigger.
     pcall(function() btn.Activated:Connect(fire) end)
-    pcall(function() btn.MouseButton1Click:Connect(fire) end)
-    pcall(function() btn.MouseButton1Down:Connect(fire) end)
-    pcall(function() btn.TouchTap:Connect(fire) end)
+
+    -- Redundant guard: require the release to land inside the button rect.
     pcall(function()
-        btn.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-               or input.UserInputType == Enum.UserInputType.Touch then
-                fire()
+        btn.InputEnded:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1
+               and input.UserInputType ~= Enum.UserInputType.Touch then
+                return
             end
+            local pos = input.Position
+            local abs = btn.AbsolutePosition
+            local size = btn.AbsoluteSize
+            if pos.X < abs.X or pos.X > abs.X + size.X
+               or pos.Y < abs.Y or pos.Y > abs.Y + size.Y then
+                return
+            end
+            fire()
         end)
     end)
 
     if AIM and AIM.Debug then
-        print("[ah] hooked stun button: " .. tostring(btn.Name))
+        print("[ah] hooked stun button (strict): " .. tostring(btn.Name))
     end
 end
 
--- word fragments per stun ability so we can match by name OR text
 local ABILITY_KEYWORDS = {
     Chance     = { "shoot", "gun", "oneshot", "one shot", "flint", "pistol", "revolver" },
     Shedletsky = { "slash", "sword" },
@@ -711,11 +703,9 @@ local function ahScanContainer()
     local pg = lp:FindFirstChild("PlayerGui")
     if not pg then return end
 
-    -- Preferred path first
     local main = pg:FindFirstChild("MainUI")
     local container = main and main:FindFirstChild("AbilityContainer")
 
-    -- Fallback: walk everything
     local function try(btn)
         if btn:IsA("GuiButton") and ahButtonMatches(btn, cfg, charName) then
             ahHookButton(btn, cfg)
@@ -726,7 +716,6 @@ local function ahScanContainer()
         for _, c in ipairs(container:GetChildren()) do try(c) end
     end
 
-    -- Always also do a full descend so we don't miss nested layouts
     for _, d in ipairs(pg:GetDescendants()) do
         if d:IsA("GuiButton") then try(d) end
     end
@@ -753,42 +742,11 @@ local function ahInstallUiWatcher()
     end)
 end
 
--- Guest1337 punch-animation-based aim trigger
-local function ahHookGuestAnimator()
-    if AbilityHook._guestAnimConn then
-        pcall(function() AbilityHook._guestAnimConn:Disconnect() end)
-        AbilityHook._guestAnimConn = nil
-    end
-    local char = lp.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local animator = hum and hum:FindFirstChildOfClass("Animator")
-    if not animator then return end
-    AbilityHook._guestAnimConn = animator.AnimationPlayed:Connect(function(track)
-        if not AbilityHook.Enabled then return end
-        local a = track and track.Animation
-        if not a then return end
-        local id = tostring(a.AnimationId):match("%d+")
-        if not id or not AbilityHook.GuestPunchAnimIds[id] then return end
-        -- Only fire if we're actually Guest1337
-        local name = char:GetAttribute("CharacterName") or char.Name
-        if not name then return end
-        local cfg = AbilityHook.StunAbilities[name]
-            or AH_LOWER_MAP[string.lower(name)]
-        if not cfg or cfg.Ability ~= "Punch" then return end
-        if AIM then
-            local dur = (cfg.Lock or 0.9) * (AbilityHook.LockMultiplier or 1.0)
-            AIM.ForceAimNow(dur, cfg.Ability)
-        end
-    end)
-end
-
 lp.CharacterAdded:Connect(function()
     AbilityHook.Hooked = {}
     AbilityHook.LastTap = {}
     task.wait(0.6)
     ahScanContainer()
-    ahHookGuestAnimator()
 end)
 
 task.spawn(function()
@@ -800,108 +758,6 @@ end)
 
 ahInstallUiWatcher()
 ahScanContainer()
-ahHookGuestAnimator()
-
--- guest aim
-GUESTAIM = {
-    Enabled = false,
-    AutoPunchOnParry = true,
-    AimOnPunch = true,
-    AimMode = "Character",
-    AimDuration = 0.8,
-    PredictionLead = 0.15,
-    TargetRange = 100,
-    Cooldown = 0.8,
-    _lastPunch = 0,
-    _aimUntil = 0,
-    _parryConn = nil,
-    _parrySetupDone = false,
-}
-
-local function guestFirePunch()
-    local now = tick()
-    if now - GUESTAIM._lastPunch < GUESTAIM.Cooldown then return false end
-    GUESTAIM._lastPunch = now
-    pcall(firePunch)
-    return true
-end
-
-local function guestStartAimWindow()
-    if not GUESTAIM.Enabled or not GUESTAIM.AimOnPunch then return end
-    GUESTAIM._aimUntil = tick() + (GUESTAIM.AimDuration or 0.8)
-end
-
-local function guestSetupParryHook()
-    if GUESTAIM._parrySetupDone then return true end
-    local ok, netMod = pcall(function()
-        return require(ReplicatedStorage.Modules.Network.Network)
-    end)
-    if not ok or type(netMod) ~= "table" or type(netMod.SetConnection) ~= "function" then
-        return false
-    end
-    local ok2 = pcall(function()
-        netMod:SetConnection(("%*1337ParryIcon"):format(lp.Name), "REMOTE_EVENT", function(blocked)
-            if blocked and GUESTAIM.Enabled and GUESTAIM.AutoPunchOnParry then
-                if guestFirePunch() then guestStartAimWindow() end
-            end
-        end)
-    end)
-    GUESTAIM._parrySetupDone = ok2
-    return ok2
-end
-
-lp.CharacterAdded:Connect(function(char)
-    task.wait(0.8)
-    if GUESTAIM.Enabled then
-        guestSetupParryHook()
-    end
-end)
-if lp.Character then
-    task.spawn(function()
-        task.wait(0.5)
-        if GUESTAIM.Enabled then
-            guestSetupParryHook()
-        end
-    end)
-end
-
-RunService.RenderStepped:Connect(function()
-    if not GUESTAIM.Enabled then return end
-    if not GUESTAIM.AimOnPunch then return end
-    if tick() >= (GUESTAIM._aimUntil or 0) then return end
-    if getMyRole() ~= "Survivors" then return end
-
-    local myRoot = getMyRoot()
-    if not myRoot then return end
-    local best, bestD = nil, GUESTAIM.TargetRange
-    if KillersFolder then
-        for _, k in ipairs(KillersFolder:GetChildren()) do
-            if k:IsA("Model") then
-                local hrp = k:FindFirstChild("HumanoidRootPart")
-                local hum = k:FindFirstChildOfClass("Humanoid")
-                if hrp and hum and hum.Health > 0 then
-                    local d = (hrp.Position - myRoot.Position).Magnitude
-                    if d < bestD then bestD = d; best = hrp end
-                end
-            end
-        end
-    end
-    if not best then return end
-
-    local vel = best.AssemblyLinearVelocity or Vector3.new()
-    if vel.Magnitude > 200 then vel = Vector3.zero end
-    local targetPos = best.Position + vel * (GUESTAIM.PredictionLead or 0.15)
-    local mode = GUESTAIM.AimMode
-    if mode == "Character" or mode == "Both" then
-        local flat = Vector3.new(targetPos.X, myRoot.Position.Y, targetPos.Z)
-        if (flat - myRoot.Position).Magnitude > 0.05 then
-            myRoot.CFrame = CFrame.lookAt(myRoot.Position, flat)
-        end
-    end
-    if mode == "Camera" or mode == "Both" then
-        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-    end
-end)
 
 -- auto gen
 AUTOGEN = { Enabled = false, Cooldown = 1.0, MaxDistance = 10, _nextFire = 0 }
@@ -1850,10 +1706,10 @@ AimTab:CreateToggle({ name = "aim on stun tap", value = true, flag = "Aim_BtnHoo
         if v then
             ahScanContainer()
             ahInstallUiWatcher()
-            ahHookGuestAnimator()
         end
     end })
 AimTab:CreateText({ name = "info", text = "fires only on stun abilities: chance shoot / shed slash / two time dagger / guest punch / jane hatchet" })
+AimTab:CreateText({ name = "strict", text = "requires a full click release inside the button - grazing won't trigger" })
 AimTab:CreateSlider({
     name = "lock multiplier",
     range = { 0.5, 4 },
@@ -1884,44 +1740,6 @@ AimTab:CreateSlider({ name = "vel lead", range = {0, 0.5}, increment = 0.01,
 AimTab:CreateSlider({ name = "ping mult", range = {0, 2}, increment = 0.05,
     value = AIM.PingMult, flag = "Aim_PingMult",
     callback = function(v) AIM.PingMult = v end })
-
--- guest
-local GuestTab = Window:CreateTab({ name = "guest", icon = 4483362458 })
-GuestTab:CreateSection({ name = "auto punch" })
-GuestTab:CreateToggle({ name = "on", value = false, flag = "GA_On",
-    callback = function(v)
-        GUESTAIM.Enabled = v
-        if v then
-            guestSetupParryHook()
-        end
-    end })
-GuestTab:CreateToggle({ name = "punch on parry", value = true, flag = "GA_AutoParry",
-    callback = function(v) GUESTAIM.AutoPunchOnParry = v end })
-GuestTab:CreateSlider({ name = "cooldown", range = {0.1, 2}, increment = 0.05, suffix = "s",
-    value = GUESTAIM.Cooldown, flag = "GA_CD",
-    callback = function(v) GUESTAIM.Cooldown = v end })
-
-GuestTab:CreateSection({ name = "aim on punch" })
-GuestTab:CreateToggle({ name = "on", value = true, flag = "GA_AimOn",
-    callback = function(v) GUESTAIM.AimOnPunch = v end })
-GuestTab:CreateDropdown({ name = "mode", options = { "Character", "Camera", "Both" }, value = { "Character" },
-    flag = "GA_AimMode",
-    callback = function(opt) GUESTAIM.AimMode = firstOpt(opt, "Character") end })
-GuestTab:CreateSlider({ name = "duration", range = { 0.2, 2 }, increment = 0.05, suffix = "s",
-    value = GUESTAIM.AimDuration, flag = "GA_AimDur",
-    callback = function(v) GUESTAIM.AimDuration = v end })
-GuestTab:CreateSlider({ name = "pred", range = { 0, 0.5 }, increment = 0.01, suffix = "s",
-    value = GUESTAIM.PredictionLead, flag = "GA_Pred",
-    callback = function(v) GUESTAIM.PredictionLead = v end })
-GuestTab:CreateSlider({ name = "range", range = { 20, 300 }, increment = 5, suffix = " studs",
-    value = GUESTAIM.TargetRange, flag = "GA_Range",
-    callback = function(v) GUESTAIM.TargetRange = v end })
-
-GuestTab:CreateSection({ name = "manual" })
-GuestTab:CreateButton({ name = "punch now",
-    callback = function() guestFirePunch() end })
-GuestTab:CreateButton({ name = "aim now",
-    callback = function() guestStartAimWindow() end })
 
 -- box
 local BoxTab = Window:CreateTab({ name = "box", icon = 4483362458 })
