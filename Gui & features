@@ -603,10 +603,20 @@ AbilityHook = {
     -- Global multiplier applied on top of every Lock value above
     LockMultiplier = 1.0,
 
+    -- Guest1337 punch animation IDs — triggering aim on these guarantees
+    -- the lock starts the moment the punch actually begins, independent of
+    -- whether the UI button press was detected.
+    GuestPunchAnimIds = {
+        ["87716278630738"] = true,
+        ["87259391926321"] = true,
+        ["86096387000557"] = true,
+    },
+
     Hooked   = {},
     LastTap  = {},
     Debounce = 0.05,
     _uiWatcher = nil,
+    _guestAnimConn = nil,
 }
 
 local AH_LOWER_MAP = {}
@@ -743,11 +753,42 @@ local function ahInstallUiWatcher()
     end)
 end
 
+-- Guest1337 punch-animation-based aim trigger
+local function ahHookGuestAnimator()
+    if AbilityHook._guestAnimConn then
+        pcall(function() AbilityHook._guestAnimConn:Disconnect() end)
+        AbilityHook._guestAnimConn = nil
+    end
+    local char = lp.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local animator = hum and hum:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    AbilityHook._guestAnimConn = animator.AnimationPlayed:Connect(function(track)
+        if not AbilityHook.Enabled then return end
+        local a = track and track.Animation
+        if not a then return end
+        local id = tostring(a.AnimationId):match("%d+")
+        if not id or not AbilityHook.GuestPunchAnimIds[id] then return end
+        -- Only fire if we're actually Guest1337
+        local name = char:GetAttribute("CharacterName") or char.Name
+        if not name then return end
+        local cfg = AbilityHook.StunAbilities[name]
+            or AH_LOWER_MAP[string.lower(name)]
+        if not cfg or cfg.Ability ~= "Punch" then return end
+        if AIM then
+            local dur = (cfg.Lock or 0.9) * (AbilityHook.LockMultiplier or 1.0)
+            AIM.ForceAimNow(dur, cfg.Ability)
+        end
+    end)
+end
+
 lp.CharacterAdded:Connect(function()
     AbilityHook.Hooked = {}
     AbilityHook.LastTap = {}
     task.wait(0.6)
     ahScanContainer()
+    ahHookGuestAnimator()
 end)
 
 task.spawn(function()
@@ -759,6 +800,7 @@ end)
 
 ahInstallUiWatcher()
 ahScanContainer()
+ahHookGuestAnimator()
 
 -- guest aim
 GUESTAIM = {
@@ -1808,6 +1850,7 @@ AimTab:CreateToggle({ name = "aim on stun tap", value = true, flag = "Aim_BtnHoo
         if v then
             ahScanContainer()
             ahInstallUiWatcher()
+            ahHookGuestAnimator()
         end
     end })
 AimTab:CreateText({ name = "info", text = "fires only on stun abilities: chance shoot / shed slash / two time dagger / guest punch / jane hatchet" })
