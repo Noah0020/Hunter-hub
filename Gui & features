@@ -148,20 +148,6 @@ local function soundToKillerRoot(sound)
     return ancestor:FindFirstChild("HumanoidRootPart")
 end
 
-local function getBlockCooldownText()
-    local main = PlayerGui:FindFirstChild("MainUI")
-    local ability = main and main:FindFirstChild("AbilityContainer")
-    local blockBtn = ability and ability:FindFirstChild("Block")
-    local cooldown = blockBtn and blockBtn:FindFirstChild("CooldownTime")
-    return cooldown and cooldown.Text or nil
-end
-
-local function isBlockAbilityAvailable()
-    local text = getBlockCooldownText()
-    if text == nil then return true end
-    return text == "" or text == " "
-end
-
 -- =========================================================
 -- DETECTION DATA
 -- =========================================================
@@ -191,6 +177,10 @@ local TRIGGER_SOUNDS = {
     ["80540530406270"]=true,["139523195429581"]=true,["105204810054381"]=true,["116468089135195"]=true,
     ["133709029886490"]=true,["124234993291213"]=true,["98733709078792"]=true,["99856718263455"]=true,
     ["74809026448465"]=true,
+
+    -- New skins
+    ["99215225043220"]=true,   -- Slasher
+    ["79612713897495"]=true,   -- Sixer
 }
 
 local TRIGGER_ANIMS = {
@@ -211,6 +201,10 @@ local TRIGGER_ANIMS = {
     "129843313690921","86709774283672","108807732150251","138040001965654",
     "86096387000557","119850211147676","131696603025265","119462383658044",
     "116618003477002","133491532453922","76649505662612","71190646367497",
+
+    -- New skins
+    "109572851772132",  -- Slasher
+    "129638875679599",  -- Sixer
 }
 local TRIGGER_ANIMS_SET = {}
 for _, id in ipairs(TRIGGER_ANIMS) do TRIGGER_ANIMS_SET[id] = true end
@@ -228,7 +222,6 @@ local function onSoundTrigger(sound)
     local killerRoot = soundToKillerRoot(sound)
     if not killerRoot then return end
     if not shouldBlock(killerRoot) then return end
-    if not isBlockAbilityAvailable() then return end
     if CFG.BlockDelay > 0 then task.delay(CFG.BlockDelay, fireBlock) else fireBlock() end
 end
 
@@ -261,7 +254,6 @@ local function onAnimPlayed(killerModel, track)
     local killerRoot = killerModel:FindFirstChild("HumanoidRootPart")
     if not killerRoot then return end
     if not shouldBlock(killerRoot) then return end
-    if not isBlockAbilityAvailable() then return end
     if CFG.BlockDelay > 0 then task.delay(CFG.BlockDelay, fireBlock) else fireBlock() end
 end
 
@@ -282,7 +274,7 @@ if KillersFolder then
 end
 
 -- =========================================================
--- HDT
+-- HITBOX DRAGGING TECH (anim-triggered only)
 -- =========================================================
 
 HDT = {
@@ -297,17 +289,15 @@ HDT = {
     _conn         = nil,
     _bv           = nil,
     _saved        = nil,
-    _lastCooldownStart = 0,
-    _lastFire          = 0,
-    _fireDebounce      = 0.5,
+    _lastFire     = 0,
+    _fireDebounce = 0.5,
 }
 
+-- Guest1337 ability block anims — HDT fires the moment one of these plays
 local OWN_BLOCK_ANIMS_SET = {
-    ["72722244508749"] = true,
-    ["96959123077498"] = true,
-    ["95802026624883"] = true,
-    ["140671644163156"] = true,
-    ["100926346851492"] = true,
+    ["96959123077498"]  = true,
+    ["90970641235403"]  = true,
+    ["72722244508749"]  = true,
 }
 
 local function nearestKillerPart()
@@ -413,26 +403,7 @@ lp.CharacterAdded:Connect(function()
     HDT._saved = nil
 end)
 
-task.spawn(function()
-    local main = PlayerGui:WaitForChild("MainUI", 30)
-    if not main then return end
-    local ability = main:WaitForChild("AbilityContainer", 30)
-    if not ability then return end
-    local blockBtn = ability:WaitForChild("Block", 30)
-    if not blockBtn then return end
-    local cooldown = blockBtn:WaitForChild("CooldownTime", 30)
-    if not cooldown then return end
-    local lastText = cooldown.Text
-    cooldown:GetPropertyChangedSignal("Text"):Connect(function()
-        local text = cooldown.Text
-        if lastText == "" and text ~= "" then
-            HDT._lastCooldownStart = tick()
-            if HDT.Enabled and HDT.AutoTrigger then HDT.TriggerFromAutoBlock() end
-        end
-        lastText = text
-    end)
-end)
-
+-- Fire HDT the moment your own block anim plays
 local hdtAnimatorConn = nil
 local function hookHDTAnimator()
     if hdtAnimatorConn then hdtAnimatorConn:Disconnect() hdtAnimatorConn = nil end
@@ -445,7 +416,7 @@ local function hookHDTAnimator()
         if not HDT.Enabled or not HDT.AutoTrigger then return end
         local id = track.Animation and tostring(track.Animation.AnimationId):match("(%d+)")
         if not id or not OWN_BLOCK_ANIMS_SET[id] then return end
-        if tick() - HDT._lastCooldownStart < 0.35 then HDT.TriggerFromAutoBlock() end
+        HDT.TriggerFromAutoBlock()
     end)
 end
 hookHDTAnimator()
@@ -467,7 +438,6 @@ AIM = {
     PingMult    = 1.0,
     Debug       = false,
 
-    -- internal
     MatchActive     = false,
     PlayingSurvivor = false,
     EventActive     = false,
@@ -1021,7 +991,7 @@ local function stopInfiniteStamina()
 end
 
 -- =========================================================
--- STAB (Two Time dagger auto-stab)
+-- STAB
 -- =========================================================
 
 STAB = {
@@ -1175,7 +1145,7 @@ lp.CharacterAdded:Connect(function()
 end)
 
 -- =========================================================
--- AZURE AUTO QTE / INFINITE ATTEMPTS (auto plant + disarm)
+-- AZURE AUTO QTE / INFINITE ATTEMPTS
 -- =========================================================
 
 AZ = {
@@ -1367,7 +1337,7 @@ HDTTab:CreateKeybind({
     callback = function() HDT.Trigger() end,
 })
 
--- ========== AUTO AIM (HunterAim v10) ==========
+-- ========== AUTO AIM ==========
 local AimTab = Window:CreateTab({ name = "Auto Aim", icon = 4483362458 })
 
 AimTab:CreateSection({ name = "Core" })
@@ -1585,7 +1555,7 @@ task.wait(0.5)
 pcall(function()
     Window:Notify({
         title = "Hunter Hub",
-        content = "Loaded. Auto Aim uses HunterAim v10 asset-driven detection.",
+        content = "Loaded. HDT now fires on block anim. New skins added to Auto Block.",
         duration = 5,
     })
 end)
