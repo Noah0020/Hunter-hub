@@ -10,9 +10,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local TweenService      = game:GetService("TweenService")
-local StarterGui        = game:GetService("StarterGui")
 local TextChatService   = game:GetService("TextChatService")
-local Debris            = game:GetService("Debris")
 local Lighting          = game:GetService("Lighting")
 local Workspace         = game:GetService("Workspace")
 local Stats             = game:GetService("Stats")
@@ -53,14 +51,12 @@ local BLOCK_COOLDOWN = 0.55
 
 local HDT, AIM, AUTOGEN, STAB, AZ
 
+-- NOTE: fireBlock no longer chains HDT. HDT only fires on actual block anim.
 local function fireBlock()
     local now = tick()
     if now - lastBlockFire < BLOCK_COOLDOWN then return false end
     lastBlockFire = now
     RemoteEvent:FireServer("UseActorAbility", { BLOCK_BUF })
-    if HDT and HDT.Enabled and HDT.ChainOnBlock then
-        task.spawn(function() HDT.TriggerFromAutoBlock() end)
-    end
     return true
 end
 
@@ -95,10 +91,12 @@ RAY_LOS.IgnoreWater = true
 local function losTo(targetPos, ignoreModel)
     local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot then return true end
+    local delta = targetPos - myRoot.Position
+    if delta.Magnitude < 0.001 then return true end
     local ignore = { lp.Character }
     if ignoreModel then ignore[#ignore + 1] = ignoreModel end
     RAY_LOS.FilterDescendantsInstances = ignore
-    return workspace:Raycast(myRoot.Position, targetPos - myRoot.Position, RAY_LOS) == nil
+    return workspace:Raycast(myRoot.Position, delta, RAY_LOS) == nil
 end
 
 local function getMyRoot()
@@ -257,15 +255,51 @@ local function onAnimPlayed(killerModel, track)
     if CFG.BlockDelay > 0 then task.delay(CFG.BlockDelay, fireBlock) else fireBlock() end
 end
 
+-- FIXED: retries hooking via ChildAdded / DescendantAdded until Humanoid+Animator exist
 local function hookKiller(killerModel)
-    if not killerModel:IsA("Model") or hookedAnims[killerModel] then return end
-    local humanoid = killerModel:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    local animator = humanoid:FindFirstChildOfClass("Animator")
-    if not animator then return end
-    hookedAnims[killerModel] = true
-    animator.AnimationPlayed:Connect(function(track) onAnimPlayed(killerModel, track) end)
-    killerModel.Destroying:Once(function() hookedAnims[killerModel] = nil end)
+    if not killerModel:IsA("Model") then return end
+    if hookedAnims[killerModel] then return end
+
+    local waitConns = {}
+    local function disconnectWaiters()
+        for _, c in ipairs(waitConns) do
+            pcall(function() c:Disconnect() end)
+        end
+        waitConns = {}
+    end
+
+    local function tryHook()
+        if hookedAnims[killerModel] then return true end
+        if not killerModel.Parent then return false end
+        local humanoid = killerModel:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return false end
+        local animator = humanoid:FindFirstChildOfClass("Animator")
+        if not animator then return false end
+        hookedAnims[killerModel] = true
+        animator.AnimationPlayed:Connect(function(track) onAnimPlayed(killerModel, track) end)
+        killerModel.Destroying:Once(function()
+            hookedAnims[killerModel] = nil
+            disconnectWaiters()
+        end)
+        disconnectWaiters()
+        return true
+    end
+
+    if tryHook() then return end
+
+    waitConns[#waitConns + 1] = killerModel.ChildAdded:Connect(function()
+        if tryHook() then disconnectWaiters() end
+    end)
+    waitConns[#waitConns + 1] = killerModel.DescendantAdded:Connect(function(d)
+        if d:IsA("Animator") then
+            if tryHook() then disconnectWaiters() end
+        end
+    end)
+    -- safety net: killer model might already be fully assembled but slow reparenting
+    task.delay(3, function()
+        if not hookedAnims[killerModel] then tryHook() end
+        disconnectWaiters()
+    end)
 end
 
 if KillersFolder then
@@ -274,17 +308,17 @@ if KillersFolder then
 end
 
 -- =========================================================
--- HITBOX DRAGGING TECH (anim-triggered only)
+-- HITBOX DRAGGING TECH (anim-triggered ONLY)
 -- =========================================================
 
 HDT = {
     Enabled       = false,
-    AutoTrigger   = true,
-    ChainOnBlock  = false,
+    AutoTrigger   = true,          -- fires on own block anim playing
     Speed         = 10,
     Delay         = 0,
     StopDistance  = 2,
     SafetyTimeout = 0.4,
+    _dragId       = 0,
     _dragging     = false,
     _conn         = nil,
     _bv           = nil,
@@ -317,13 +351,20 @@ local function nearestKillerPart()
 end
 
 local function startDrag(targetPart)
-    if HDT._dragging then return end
     if not targetPart or not targetPart.Parent then return end
     local char = lp.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not humanoid then return end
+
+    -- Cancel any existing drag first
+    HDT._dragId += 1
+    local myId = HDT._dragId
+
+    if HDT._conn then HDT._conn:Disconnect() HDT._conn = nil end
+    if HDT._bv and HDT._bv.Parent then HDT._bv:Destroy() end
+    HDT._bv = nil
 
     HDT._dragging = true
     local saved = {
@@ -345,19 +386,29 @@ local function startDrag(targetPart)
     bv.Parent = hrp
     HDT._bv = bv
 
+    local function cleanup()
+        -- Only the current drag is allowed to clean up shared state
+        if HDT._dragId ~= myId then return end
+        HDT._dragging = false
+        if HDT._conn then HDT._conn:Disconnect() HDT._conn = nil end
+        if bv and bv.Parent then bv:Destroy() end
+        if humanoid and humanoid.Parent then
+            humanoid.WalkSpeed     = saved.walk
+            humanoid.JumpPower     = saved.jump
+            humanoid.PlatformStand = saved.platformStand
+            humanoid.AutoRotate    = saved.autoRotate
+        end
+        HDT._bv = nil
+        HDT._saved = nil
+    end
+
     HDT._conn = RunService.Heartbeat:Connect(function()
-        if not HDT._dragging or not (char and char.Parent and targetPart and targetPart.Parent) then
+        if HDT._dragId ~= myId then
             if HDT._conn then HDT._conn:Disconnect() HDT._conn = nil end
-            if bv and bv.Parent then bv:Destroy() end
-            if humanoid and humanoid.Parent then
-                humanoid.WalkSpeed     = saved.walk
-                humanoid.JumpPower     = saved.jump
-                humanoid.PlatformStand = saved.platformStand
-                humanoid.AutoRotate    = saved.autoRotate
-            end
-            HDT._bv = nil
-            HDT._saved = nil
-            HDT._dragging = false
+            return
+        end
+        if not (char and char.Parent and targetPart and targetPart.Parent) then
+            cleanup()
             return
         end
         local myPos = hrp.Position
@@ -373,11 +424,16 @@ local function startDrag(targetPart)
             bv.Velocity = Vector3.zero
         end
         if (tgtPos - myPos).Magnitude <= HDT.StopDistance then
-            HDT._dragging = false
+            cleanup()
         end
     end)
 
-    task.delay(HDT.SafetyTimeout, function() HDT._dragging = false end)
+    task.delay(HDT.SafetyTimeout, function()
+        -- Only trip if this drag is still the active one
+        if HDT._dragId == myId and HDT._dragging then
+            cleanup()
+        end
+    end)
 end
 
 function HDT.TriggerFromAutoBlock()
@@ -396,6 +452,7 @@ end
 HDT.Trigger = HDT.TriggerFromAutoBlock
 
 lp.CharacterAdded:Connect(function()
+    HDT._dragId += 1   -- invalidate any pending cleanup from old drag
     HDT._dragging = false
     if HDT._conn then HDT._conn:Disconnect() HDT._conn = nil end
     if HDT._bv and HDT._bv.Parent then HDT._bv:Destroy() end
@@ -403,7 +460,7 @@ lp.CharacterAdded:Connect(function()
     HDT._saved = nil
 end)
 
--- Fire HDT the moment your own block anim plays
+-- Fire HDT the moment your own block anim plays. This is the ONLY HDT path now.
 local hdtAnimatorConn = nil
 local function hookHDTAnimator()
     if hdtAnimatorConn then hdtAnimatorConn:Disconnect() hdtAnimatorConn = nil end
@@ -439,14 +496,12 @@ AIM = {
     Debug       = false,
 
     MatchActive     = false,
-    PlayingSurvivor = false,
     EventActive     = false,
     EventRefCount   = 0,
     CurrentAbility  = nil,
     CachedTargetHRP = nil,
     AnimIds         = {},
     SoundIds        = {},
-    LastSurvivorAnimTime = 0,
     AnimConn        = nil,
     SoundConns      = {},
 }
@@ -600,9 +655,10 @@ local function attachAnimWatcher(char)
     end)
 end
 
+-- FIXED: `Played` is the event; `Playing` is a boolean property.
 local function hookMySound(s)
     if not s:IsA("Sound") then return end
-    return s.Playing:Connect(function()
+    return s.Played:Connect(function()
         local sid = s.SoundId and tostring(s.SoundId):match("%d+") or nil
         if not sid then return end
         if AIM.Debug then print("[HA sound]", sid) end
@@ -635,12 +691,19 @@ local function attachSoundWatcher(char)
     end))
 end
 
+-- FIXED: store & disconnect on respawn so it doesn't leak
+local animActivityConn = nil
 local function attachAnimActivity(char)
+    if animActivityConn then
+        pcall(function() animActivityConn:Disconnect() end)
+        animActivityConn = nil
+    end
     task.wait(0.5)
+    if char ~= lp.Character then return end
     local hum = char:WaitForChild("Humanoid", 5)
     local anim = hum and hum:WaitForChild("Animator", 5)
     if not anim then return end
-    anim.AnimationPlayed:Connect(function(track)
+    animActivityConn = anim.AnimationPlayed:Connect(function(track)
         local p = track.Priority
         if p == Enum.AnimationPriority.Movement
            or p == Enum.AnimationPriority.Idle
@@ -667,9 +730,14 @@ local function runMatchScan()
     return false
 end
 
+-- FIXED: no longer depends on movement-anim timestamps. Just role + alive.
 local function isPlayingSurvivor()
     if getMyRole() ~= "Survivors" then return false end
-    return (os.clock() - AIM.LastSurvivorAnimTime) < 3
+    local char = lp.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    return true
 end
 
 local function attachAimToCharacter(char)
@@ -699,8 +767,7 @@ task.spawn(function()
     while true do
         task.wait(2)
         pcall(function()
-            AIM.MatchActive     = runMatchScan()
-            AIM.PlayingSurvivor = isPlayingSurvivor()
+            AIM.MatchActive = runMatchScan()
         end)
     end
 end)
@@ -1109,14 +1176,16 @@ local function stabActivate()
         Vector3.new(kCF.Position.X, origin.Position.Y, kCF.Position.Z)
     )
     task.wait(STAB.TeleportDelay)
+
+    -- FIXED: re-check everything after the yield
+    if not STAB.Enabled then STAB._stabbing = false return end
+    if not kHRP or not kHRP.Parent then STAB._stabbing = false return end
     local now = stabGetMyHRP()
     if not now then STAB._stabbing = false return end
     now.CFrame = behind
     now.AssemblyLinearVelocity = Vector3.zero
     stabFollow(killer)
 end
-
-_G.HunterStab = stabActivate
 
 local function stabBindAnimator()
     if STAB._animConn then
@@ -1154,33 +1223,35 @@ AZ = {
     qteHooked = false,
 }
 
+-- FIXED: pcall-guarded reassignment; removed meaningless hookfunction check
 local function azHookQTE()
     if AZ.qteHooked then return true end
-    if type(hookfunction) ~= "function" then return false end
     local ok, mod = pcall(function()
         return require(ReplicatedStorage.Assets.Killers.Azure.Config.cl_WorkaroundModules.cl_ConstructQTE)
     end)
     if not ok or type(mod) ~= "table" or type(mod.new) ~= "function" then return false end
     local origNew = mod.new
-    mod.new = function(...)
-        local qte = origNew(...)
-        if qte then
-            if AZ.InfiniteQTE then
-                pcall(function() qte.FailedAttempts = -math.huge end)
+    local success = pcall(function()
+        mod.new = function(...)
+            local qte = origNew(...)
+            if qte then
+                if AZ.InfiniteQTE then
+                    pcall(function() qte.FailedAttempts = -math.huge end)
+                end
+                if AZ.AutoQTE then
+                    task.defer(function()
+                        task.wait(0.12)
+                        if AZ.AutoQTE and qte and type(qte.AddProgress) == "function" then
+                            pcall(function() qte:AddProgress(100) end)
+                        end
+                    end)
+                end
             end
-            if AZ.AutoQTE then
-                task.defer(function()
-                    task.wait(0.12)
-                    if AZ.AutoQTE and qte and type(qte.AddProgress) == "function" then
-                        pcall(function() qte:AddProgress(100) end)
-                    end
-                end)
-            end
+            return qte
         end
-        return qte
-    end
-    AZ.qteHooked = true
-    return true
+    end)
+    AZ.qteHooked = success
+    return success
 end
 
 -- =========================================================
@@ -1199,6 +1270,12 @@ local Window = Rayfield:CreateWindow({
         fileName = "HunterHub",
     },
 })
+
+-- Dropdown value normalizer (Rayfield may pass either a string or a table)
+local function firstOpt(opt, default)
+    if type(opt) == "table" then return opt[1] or default end
+    return opt or default
+end
 
 -- ========== ESP ==========
 local ESPTab = Window:CreateTab({ name = "ESP", icon = 4483362458 })
@@ -1308,9 +1385,9 @@ HDTTab:CreateToggle({
     name = "Trigger on your block anim", value = true, flag = "HDT_Auto",
     callback = function(v) HDT.AutoTrigger = v end,
 })
-HDTTab:CreateToggle({
-    name = "Chain HDT with Auto Block", value = false, flag = "HDT_Chain",
-    callback = function(v) HDT.ChainOnBlock = v end,
+HDTTab:CreateText({
+    name = "Note",
+    text = "HDT only fires when your block animation actually plays. If block is on cooldown / you're out of block, HDT stays idle.",
 })
 HDTTab:CreateSlider({
     name = "Drag Speed", range = {2, 20}, increment = 0.1,
@@ -1371,7 +1448,7 @@ task.spawn(function()
                 "%s  •  %d anim  •  %d sound  •  %.0f ms\nMatch: %s  •  Survivor: %s  •  Event: %s",
                 name, nA, nS, getPing() * 1000,
                 AIM.MatchActive and "yes" or "no",
-                AIM.PlayingSurvivor and "yes" or "no",
+                isPlayingSurvivor() and "yes" or "no",
                 AIM.EventActive and "ACTIVE" or "idle"
             ))
         end)
@@ -1382,7 +1459,7 @@ AimTab:CreateSection({ name = "Aim Mode" })
 AimTab:CreateDropdown({
     name = "Mode", options = {"Camera", "HRP", "HRP+Camera"}, value = {"Camera"},
     flag = "Aim_Mode",
-    callback = function(opt) AIM.AimMode = opt end,
+    callback = function(opt) AIM.AimMode = firstOpt(opt, "Camera") end,
 })
 AimTab:CreateSlider({
     name = "Smoothness", range = {0.05, 1}, increment = 0.05,
@@ -1394,7 +1471,7 @@ AimTab:CreateSection({ name = "Prediction" })
 AimTab:CreateDropdown({
     name = "Mode", options = {"Off", "Ping", "Velocity", "Both"}, value = {"Both"},
     flag = "Aim_PredictMode",
-    callback = function(opt) AIM.PredictMode = opt end,
+    callback = function(opt) AIM.PredictMode = firstOpt(opt, "Both") end,
 })
 AimTab:CreateSlider({
     name = "Velocity Lead (s)", range = {0, 0.5}, increment = 0.01,
@@ -1555,7 +1632,7 @@ task.wait(0.5)
 pcall(function()
     Window:Notify({
         title = "Hunter Hub",
-        content = "Loaded. HDT now fires on block anim. New skins added to Auto Block.",
+        content = "Loaded. HDT now requires actual block anim. Bug fixes applied.",
         duration = 5,
     })
 end)
