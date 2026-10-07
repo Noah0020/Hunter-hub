@@ -1,10 +1,10 @@
 -- Hunter Hub
 -- ESP + Stam + Auto Block + HDT + Auto Aim + Killer + Misc
--- UI: Rayfield
+-- UI: Rayfield Gen2
 
 repeat task.wait() until game:IsLoaded()
 
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1257,350 +1257,332 @@ local function azSetGolemAim(on)
 end
 
 -- =========================================================
--- UI (Rayfield) -- with defensive wrappers
+-- UI (Rayfield Gen2)
 -- =========================================================
 
-local ICON = 4483362458
-
 local Window = Rayfield:CreateWindow({
-    Name = "Hunter Hub",
-    LoadingTitle = "Hunter Hub",
-    LoadingSubtitle = "loading...",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "HunterHub",
-        FileName = "Config",
+    name = "Hunter Hub",
+    subtitle = "Rayfield Gen2",
+    icon = 4483362458,
+    sidebarLayout = true,
+    theme = "cobalt",
+    configuration = {
+        autoSave = true,
+        autoLoad = true,
+        fileName = "HunterHub",
     },
-    Discord = { Enabled = false },
-    KeySystem = false,
 })
-
--- Defensive helpers: one bad element can't kill a tab
-local function SafeToggle(tab, cfg) pcall(function() tab:CreateToggle(cfg) end) end
-local function SafeSlider(tab, cfg) pcall(function() tab:CreateSlider(cfg) end) end
-local function SafeDropdown(tab, cfg) pcall(function() tab:CreateDropdown(cfg) end) end
-local function SafeButton(tab, cfg) pcall(function() tab:CreateButton(cfg) end) end
-local function SafeKeybind(tab, cfg) pcall(function() tab:CreateKeybind(cfg) end) end
-local function SafeSection(tab, name) pcall(function() tab:CreateSection(name) end) end
-local function SafeParagraph(tab, cfg) pcall(function() tab:CreateParagraph(cfg) end) end
 
 -- ========== ESP ==========
-local ESPTab = Window:CreateTab("ESP", ICON)
-SafeSection(ESPTab, "Players")
-SafeToggle(ESPTab, {
-    Name = "Killer ESP", CurrentValue = false, Flag = "ESP_Killers",
-    Callback = function(v) CFG.ESPKillers = v if v then refreshKillers() else clearKillerESP() end end,
+local ESPTab = Window:CreateTab({ name = "ESP", icon = 4483362458 })
+ESPTab:CreateSection({ name = "Players" })
+ESPTab:CreateToggle({
+    name = "Killer ESP", value = false, flag = "ESP_Killers",
+    callback = function(v) CFG.ESPKillers = v if v then refreshKillers() else clearKillerESP() end end,
 })
-SafeToggle(ESPTab, {
-    Name = "Survivor ESP", CurrentValue = false, Flag = "ESP_Survivors",
-    Callback = function(v) CFG.ESPSurvivors = v if v then refreshSurvivors() else clearSurvivorESP() end end,
+ESPTab:CreateToggle({
+    name = "Survivor ESP", value = false, flag = "ESP_Survivors",
+    callback = function(v) CFG.ESPSurvivors = v if v then refreshSurvivors() else clearSurvivorESP() end end,
 })
-SafeSection(ESPTab, "World")
-SafeToggle(ESPTab, {
-    Name = "Generator ESP", CurrentValue = false, Flag = "ESP_Generators",
-    Callback = function(v) CFG.ESPGenerators = v if v then refreshGenerators() else clearGeneratorESP() end end,
+ESPTab:CreateSection({ name = "World" })
+ESPTab:CreateToggle({
+    name = "Generator ESP", value = false, flag = "ESP_Generators",
+    callback = function(v) CFG.ESPGenerators = v if v then refreshGenerators() else clearGeneratorESP() end end,
 })
-SafeToggle(ESPTab, {
-    Name = "Item ESP", CurrentValue = false, Flag = "ESP_Items",
-    Callback = function(v) CFG.ESPItems = v if v then refreshItems() else clearItemESP() end end,
+ESPTab:CreateToggle({
+    name = "Item ESP", value = false, flag = "ESP_Items",
+    callback = function(v) CFG.ESPItems = v if v then refreshItems() else clearItemESP() end end,
 })
 
 -- ========== STAM ==========
-local StamTab = Window:CreateTab("Stam", ICON)
-SafeSection(StamTab, "Sprint Module")
+local StamTab = Window:CreateTab({ name = "Stam", icon = 4483362458 })
+StamTab:CreateSection({ name = "Sprint Module" })
 if not Sprinting then
-    SafeParagraph(StamTab, {
-        Title = "Sprint Module Unavailable",
-        Content = "Infinite Stamina requires the Sprinting module. Rejoin if this persists.",
-    })
+    StamTab:CreateText({ name = "Sprint Module Unavailable", text = "Infinite Stamina requires the Sprinting module. Rejoin if this persists." })
 else
-    SafeToggle(StamTab, {
-        Name = "Infinite Stamina",
-        CurrentValue = false, Flag = "InfStam",
-        Callback = function(v)
+    StamTab:CreateToggle({
+        name = "Infinite Stamina", value = false, flag = "InfStam",
+        callback = function(v)
             CFG.InfiniteStamina = v
             if v then startInfiniteStamina() else stopInfiniteStamina() end
         end,
     })
-    SafeSlider(StamTab, {
-        Name = "Max Stamina", Range = {1, 1000}, Increment = 1,
-        CurrentValue = Sprinting.MaxStamina or 100, Flag = "Stam_Max",
-        Callback = function(v) if Sprinting then Sprinting.MaxStamina = v end end,
+    StamTab:CreateSlider({
+        name = "Max Stamina", range = {1, 1000}, increment = 1,
+        value = Sprinting.MaxStamina or 100, flag = "Stam_Max",
+        callback = function(v) if Sprinting then Sprinting.MaxStamina = v end end,
     })
-    SafeSlider(StamTab, {
-        Name = "Sprint Speed", Range = {1, 40}, Increment = 1,
-        CurrentValue = Sprinting.SprintSpeed or 26, Flag = "Stam_Speed",
-        Callback = function(v) if Sprinting then Sprinting.SprintSpeed = v end end,
+    StamTab:CreateSlider({
+        name = "Sprint Speed", range = {1, 40}, increment = 1,
+        value = Sprinting.SprintSpeed or 26, flag = "Stam_Speed",
+        callback = function(v) if Sprinting then Sprinting.SprintSpeed = v end end,
     })
-    SafeSlider(StamTab, {
-        Name = "Stamina Gain", Range = {1, 200}, Increment = 1,
-        CurrentValue = Sprinting.StaminaGain or 20, Flag = "Stam_Gain",
-        Callback = function(v) if Sprinting then Sprinting.StaminaGain = v end end,
+    StamTab:CreateSlider({
+        name = "Stamina Gain", range = {1, 200}, increment = 1,
+        value = Sprinting.StaminaGain or 20, flag = "Stam_Gain",
+        callback = function(v) if Sprinting then Sprinting.StaminaGain = v end end,
     })
-    SafeSlider(StamTab, {
-        Name = "Stamina Loss", Range = {0, 50}, Increment = 0.5,
-        CurrentValue = Sprinting.StaminaLoss or 10, Flag = "Stam_Loss",
-        Callback = function(v) if Sprinting then Sprinting.StaminaLoss = v end end,
+    StamTab:CreateSlider({
+        name = "Stamina Loss", range = {0, 50}, increment = 0.5,
+        value = Sprinting.StaminaLoss or 10, flag = "Stam_Loss",
+        callback = function(v) if Sprinting then Sprinting.StaminaLoss = v end end,
     })
 end
 
 -- ========== AUTO BLOCK ==========
-local ABTab = Window:CreateTab("Auto Block", ICON)
-SafeSection(ABTab, "Core")
-SafeToggle(ABTab, {
-    Name = "Enable Auto Block", CurrentValue = false, Flag = "AutoBlock",
-    Callback = function(v) CFG.AutoBlockEnabled = v end,
+local ABTab = Window:CreateTab({ name = "Auto Block", icon = 4483362458 })
+ABTab:CreateSection({ name = "Core" })
+ABTab:CreateToggle({
+    name = "Enable Auto Block", value = false, flag = "AutoBlock",
+    callback = function(v) CFG.AutoBlockEnabled = v end,
 })
-SafeSlider(ABTab, {
-    Name = "Detection Range", Range = {8, 60}, Increment = 1, Suffix = " studs",
-    CurrentValue = CFG.DetectionRange, Flag = "AB_Range",
-    Callback = function(v) CFG.DetectionRange = v end,
+ABTab:CreateSlider({
+    name = "Detection Range", range = {8, 60}, increment = 1, suffix = " studs",
+    value = CFG.DetectionRange, flag = "AB_Range",
+    callback = function(v) CFG.DetectionRange = v end,
 })
-SafeSlider(ABTab, {
-    Name = "Block Delay", Range = {0, 0.5}, Increment = 0.01, Suffix = "s",
-    CurrentValue = 0, Flag = "AB_Delay",
-    Callback = function(v) CFG.BlockDelay = v end,
+ABTab:CreateSlider({
+    name = "Block Delay", range = {0, 0.5}, increment = 0.01, suffix = "s",
+    value = 0, flag = "AB_Delay",
+    callback = function(v) CFG.BlockDelay = v end,
 })
-SafeSection(ABTab, "Triggers")
-SafeToggle(ABTab, {
-    Name = "Sound Trigger (fastest)", CurrentValue = true, Flag = "AB_Sound",
-    Callback = function(v) CFG.SoundTrigger = v end,
+ABTab:CreateSection({ name = "Triggers" })
+ABTab:CreateToggle({
+    name = "Sound Trigger (fastest)", value = true, flag = "AB_Sound",
+    callback = function(v) CFG.SoundTrigger = v end,
 })
-SafeToggle(ABTab, {
-    Name = "Animation Trigger", CurrentValue = true, Flag = "AB_Anim",
-    Callback = function(v) CFG.AnimTrigger = v end,
+ABTab:CreateToggle({
+    name = "Animation Trigger", value = true, flag = "AB_Anim",
+    callback = function(v) CFG.AnimTrigger = v end,
 })
-SafeSection(ABTab, "Filters")
-SafeToggle(ABTab, {
-    Name = "Wall Check", CurrentValue = true, Flag = "AB_Wall",
-    Callback = function(v) CFG.WallCheck = v end,
+ABTab:CreateSection({ name = "Filters" })
+ABTab:CreateToggle({
+    name = "Wall Check", value = true, flag = "AB_Wall",
+    callback = function(v) CFG.WallCheck = v end,
 })
-SafeToggle(ABTab, {
-    Name = "Facing Check", CurrentValue = true, Flag = "AB_Facing",
-    Callback = function(v) CFG.FacingCheck = v end,
+ABTab:CreateToggle({
+    name = "Facing Check", value = true, flag = "AB_Facing",
+    callback = function(v) CFG.FacingCheck = v end,
 })
-SafeSlider(ABTab, {
-    Name = "Facing Threshold (dot)", Range = {-1, 1}, Increment = 0.05,
-    CurrentValue = CFG.FacingDot, Flag = "AB_FacingDot",
-    Callback = function(v) CFG.FacingDot = v end,
+ABTab:CreateSlider({
+    name = "Facing Threshold (dot)", range = {-1, 1}, increment = 0.05,
+    value = CFG.FacingDot, flag = "AB_FacingDot",
+    callback = function(v) CFG.FacingDot = v end,
 })
 
 -- ========== HDT ==========
-local HDTTab = Window:CreateTab("HDT", ICON)
-SafeSection(HDTTab, "Hitbox Dragging")
-SafeToggle(HDTTab, {
-    Name = "Enable HDT", CurrentValue = false, Flag = "HDT_On",
-    Callback = function(v) HDT.Enabled = v end,
+local HDTTab = Window:CreateTab({ name = "HDT", icon = 4483362458 })
+HDTTab:CreateSection({ name = "Hitbox Dragging" })
+HDTTab:CreateToggle({
+    name = "Enable HDT", value = false, flag = "HDT_On",
+    callback = function(v) HDT.Enabled = v end,
 })
-SafeToggle(HDTTab, {
-    Name = "Trigger on your block anim",
-    CurrentValue = true, Flag = "HDT_Auto",
-    Callback = function(v) HDT.AutoTrigger = v end,
+HDTTab:CreateToggle({
+    name = "Trigger on your block anim", value = true, flag = "HDT_Auto",
+    callback = function(v) HDT.AutoTrigger = v end,
 })
-SafeToggle(HDTTab, {
-    Name = "Chain HDT with Auto Block",
-    CurrentValue = false, Flag = "HDT_Chain",
-    Callback = function(v) HDT.ChainOnBlock = v end,
+HDTTab:CreateToggle({
+    name = "Chain HDT with Auto Block", value = false, flag = "HDT_Chain",
+    callback = function(v) HDT.ChainOnBlock = v end,
 })
-SafeSlider(HDTTab, {
-    Name = "Drag Speed", Range = {2, 20}, Increment = 0.1,
-    CurrentValue = HDT.Speed, Flag = "HDT_Speed",
-    Callback = function(v) HDT.Speed = v end,
+HDTTab:CreateSlider({
+    name = "Drag Speed", range = {2, 20}, increment = 0.1,
+    value = HDT.Speed, flag = "HDT_Speed",
+    callback = function(v) HDT.Speed = v end,
 })
-SafeSlider(HDTTab, {
-    Name = "Start Delay", Range = {0, 2}, Increment = 0.05, Suffix = "s",
-    CurrentValue = HDT.Delay, Flag = "HDT_Delay",
-    Callback = function(v) HDT.Delay = v end,
+HDTTab:CreateSlider({
+    name = "Start Delay", range = {0, 2}, increment = 0.05, suffix = "s",
+    value = HDT.Delay, flag = "HDT_Delay",
+    callback = function(v) HDT.Delay = v end,
 })
-SafeSlider(HDTTab, {
-    Name = "Stop Distance", Range = {1, 5}, Increment = 0.1, Suffix = " studs",
-    CurrentValue = HDT.StopDistance, Flag = "HDT_Stop",
-    Callback = function(v) HDT.StopDistance = v end,
+HDTTab:CreateSlider({
+    name = "Stop Distance", range = {1, 5}, increment = 0.1, suffix = " studs",
+    value = HDT.StopDistance, flag = "HDT_Stop",
+    callback = function(v) HDT.StopDistance = v end,
 })
-SafeSlider(HDTTab, {
-    Name = "Safety Timeout", Range = {0.2, 1.5}, Increment = 0.05, Suffix = "s",
-    CurrentValue = HDT.SafetyTimeout, Flag = "HDT_Safety",
-    Callback = function(v) HDT.SafetyTimeout = v end,
+HDTTab:CreateSlider({
+    name = "Safety Timeout", range = {0.2, 1.5}, increment = 0.05, suffix = "s",
+    value = HDT.SafetyTimeout, flag = "HDT_Safety",
+    callback = function(v) HDT.SafetyTimeout = v end,
 })
-SafeKeybind(HDTTab, {
-    Name = "Manual HDT Trigger", CurrentKeybind = "Q", HoldToInteract = false,
-    Flag = "HDT_Key",
-    Callback = function() HDT.Trigger() end,
+HDTTab:CreateKeybind({
+    name = "Manual HDT Trigger", value = Enum.KeyCode.Q,
+    callback = function() HDT.Trigger() end,
 })
 
 -- ========== AUTO AIM ==========
-local AimTab = Window:CreateTab("Auto Aim", ICON)
-SafeSection(AimTab, "Core")
-SafeToggle(AimTab, {
-    Name = "Enable Auto Aim", CurrentValue = false, Flag = "Aim_On",
-    Callback = function(v) AIM.Enabled = v AIM._currentTarget = nil end,
+local AimTab = Window:CreateTab({ name = "Auto Aim", icon = 4483362458 })
+AimTab:CreateSection({ name = "Core" })
+AimTab:CreateToggle({
+    name = "Enable Auto Aim", value = false, flag = "Aim_On",
+    callback = function(v) AIM.Enabled = v AIM._currentTarget = nil end,
 })
-SafeToggle(AimTab, {
-    Name = "Only during punch", CurrentValue = true, Flag = "Aim_PunchOnly",
-    Callback = function(v) AIM.PunchOnly = v end,
+AimTab:CreateToggle({
+    name = "Only during punch", value = true, flag = "Aim_PunchOnly",
+    callback = function(v) AIM.PunchOnly = v end,
 })
-SafeSlider(AimTab, {
-    Name = "Punch Window", Range = {0.1, 1.5}, Increment = 0.05, Suffix = "s",
-    CurrentValue = AIM._window, Flag = "Aim_Window",
-    Callback = function(v) AIM._window = v end,
+AimTab:CreateSlider({
+    name = "Punch Window", range = {0.1, 1.5}, increment = 0.05, suffix = "s",
+    value = AIM._window, flag = "Aim_Window",
+    callback = function(v) AIM._window = v end,
 })
-SafeSection(AimTab, "Target")
-SafeDropdown(AimTab, {
-    Name = "Target Type", Options = {"Killers", "Survivors"}, CurrentOption = {"Killers"},
-    Flag = "Aim_Type",
-    Callback = function(opt) AIM.TargetType = opt AIM._currentTarget = nil end,
+AimTab:CreateSection({ name = "Target" })
+AimTab:CreateDropdown({
+    name = "Target Type", options = {"Killers", "Survivors"}, value = {"Killers"},
+    flag = "Aim_Type",
+    callback = function(opt) AIM.TargetType = opt AIM._currentTarget = nil end,
 })
-SafeDropdown(AimTab, {
-    Name = "Aim Method", Options = {"Camera Lock", "HRP Lock", "HRP + Camera Lock"}, CurrentOption = {"HRP + Camera Lock"},
-    Flag = "Aim_Method",
-    Callback = function(opt) AIM.Method = opt end,
+AimTab:CreateDropdown({
+    name = "Aim Method", options = {"Camera Lock", "HRP Lock", "HRP + Camera Lock"}, value = {"HRP + Camera Lock"},
+    flag = "Aim_Method",
+    callback = function(opt) AIM.Method = opt end,
 })
-SafeDropdown(AimTab, {
-    Name = "Aim Part", Options = {"Head", "Torso", "HumanoidRootPart"}, CurrentOption = {"Head"},
-    Flag = "Aim_Part",
-    Callback = function(opt) AIM.Part = opt end,
+AimTab:CreateDropdown({
+    name = "Aim Part", options = {"Head", "Torso", "HumanoidRootPart"}, value = {"Head"},
+    flag = "Aim_Part",
+    callback = function(opt) AIM.Part = opt end,
 })
-SafeSection(AimTab, "Tuning")
-SafeSlider(AimTab, {
-    Name = "Max Distance", Range = {20, 500}, Increment = 5, Suffix = " studs",
-    CurrentValue = AIM.Distance, Flag = "Aim_Dist",
-    Callback = function(v) AIM.Distance = v end,
+AimTab:CreateSection({ name = "Tuning" })
+AimTab:CreateSlider({
+    name = "Max Distance", range = {20, 500}, increment = 5, suffix = " studs",
+    value = AIM.Distance, flag = "Aim_Dist",
+    callback = function(v) AIM.Distance = v end,
 })
-SafeSlider(AimTab, {
-    Name = "Prediction", Range = {0, 1}, Increment = 0.01,
-    CurrentValue = AIM.Prediction, Flag = "Aim_Pred",
-    Callback = function(v) AIM.Prediction = v end,
+AimTab:CreateSlider({
+    name = "Prediction", range = {0, 1}, increment = 0.01,
+    value = AIM.Prediction, flag = "Aim_Pred",
+    callback = function(v) AIM.Prediction = v end,
 })
-SafeSlider(AimTab, {
-    Name = "Smoothness (lower = snappier)", Range = {0.02, 1}, Increment = 0.02,
-    CurrentValue = AIM.Smoothness, Flag = "Aim_Smooth",
-    Callback = function(v) AIM.Smoothness = v end,
+AimTab:CreateSlider({
+    name = "Smoothness (lower = snappier)", range = {0.02, 1}, increment = 0.02,
+    value = AIM.Smoothness, flag = "Aim_Smooth",
+    callback = function(v) AIM.Smoothness = v end,
 })
-SafeSection(AimTab, "Filters")
-SafeToggle(AimTab, {
-    Name = "Wall Check", CurrentValue = true, Flag = "Aim_Wall",
-    Callback = function(v) AIM.WallCheck = v end,
+AimTab:CreateSection({ name = "Filters" })
+AimTab:CreateToggle({
+    name = "Wall Check", value = true, flag = "Aim_Wall",
+    callback = function(v) AIM.WallCheck = v end,
 })
 
 -- ========== KILLER ==========
-local KillerTab = Window:CreateTab("Killer", ICON)
-SafeSection(KillerTab, "John Doe Aim")
-SafeToggle(KillerTab, {
-    Name = "Enable John Doe Aim", CurrentValue = false, Flag = "JD_On",
-    Callback = function(v) jdSetEnabled(v) end,
+local KillerTab = Window:CreateTab({ name = "Killer", icon = 4483362458 })
+KillerTab:CreateSection({ name = "John Doe Aim" })
+KillerTab:CreateToggle({
+    name = "Enable John Doe Aim", value = false, flag = "JD_On",
+    callback = function(v) jdSetEnabled(v) end,
 })
-SafeToggle(KillerTab, {
-    Name = "Spin Aim Mode", CurrentValue = false, Flag = "JD_Spin",
-    Callback = function(v) JD.SpinAim = v end,
+KillerTab:CreateToggle({
+    name = "Spin Aim Mode", value = false, flag = "JD_Spin",
+    callback = function(v) JD.SpinAim = v end,
 })
-SafeToggle(KillerTab, {
-    Name = "Double Strike Mode", CurrentValue = false, Flag = "JD_Double",
-    Callback = function(v) JD.DoubleStrike = v end,
+KillerTab:CreateToggle({
+    name = "Double Strike Mode", value = false, flag = "JD_Double",
+    callback = function(v) JD.DoubleStrike = v end,
 })
-SafeSlider(KillerTab, {
-    Name = "Spin Speed", Range = {10, 100}, Increment = 1,
-    CurrentValue = 20, Flag = "JD_SpinSpeed",
-    Callback = function(v) JD.SpinSpeed = v end,
+KillerTab:CreateSlider({
+    name = "Spin Speed", range = {10, 100}, increment = 1,
+    value = 20, flag = "JD_SpinSpeed",
+    callback = function(v) JD.SpinSpeed = v end,
 })
-SafeSlider(KillerTab, {
-    Name = "Prediction Time", Range = {0, 2}, Increment = 0.01,
-    CurrentValue = 0.5, Flag = "JD_Pred",
-    Callback = function(v) JD.CorruptLeadTime = v end,
+KillerTab:CreateSlider({
+    name = "Prediction Time", range = {0, 2}, increment = 0.01,
+    value = 0.5, flag = "JD_Pred",
+    callback = function(v) JD.CorruptLeadTime = v end,
 })
-SafeSection(KillerTab, "c00lkidd Rush Control")
-SafeToggle(KillerTab, {
-    Name = "OverRide Anti Collision (rage)", CurrentValue = false, Flag = "CK_Anti",
-    Callback = function(v) ckSetAntiCollision(v) end,
+KillerTab:CreateSection({ name = "c00lkidd Rush Control" })
+KillerTab:CreateToggle({
+    name = "OverRide Anti Collision (rage)", value = false, flag = "CK_Anti",
+    callback = function(v) ckSetAntiCollision(v) end,
 })
-SafeToggle(KillerTab, {
-    Name = "OverRide Control (rage)", CurrentValue = false, Flag = "CK_Ctrl",
-    Callback = function(v) ckSetOverrideControl(v) end,
+KillerTab:CreateToggle({
+    name = "OverRide Control (rage)", value = false, flag = "CK_Ctrl",
+    callback = function(v) ckSetOverrideControl(v) end,
 })
-SafeToggle(KillerTab, {
-    Name = "Custom Walk Speed", CurrentValue = false, Flag = "CK_Walk",
-    Callback = function(v) ckSetCustomWalkSpeed(v) end,
+KillerTab:CreateToggle({
+    name = "Custom Walk Speed", value = false, flag = "CK_Walk",
+    callback = function(v) ckSetCustomWalkSpeed(v) end,
 })
-SafeSlider(KillerTab, {
-    Name = "Override Speed", Range = {30, 150}, Increment = 1,
-    CurrentValue = 90, Flag = "CK_Speed",
-    Callback = function(v) CK.OverrideSpeed = v end,
+KillerTab:CreateSlider({
+    name = "Override Speed", range = {30, 150}, increment = 1,
+    value = 90, flag = "CK_Speed",
+    callback = function(v) CK.OverrideSpeed = v end,
 })
-SafeSection(KillerTab, "Noli")
-SafeToggle(KillerTab, {
-    Name = "Noli Rush Control", CurrentValue = false, Flag = "Noli_Ctrl",
-    Callback = function(v) Noli.Enabled = v noliUpdate() end,
+KillerTab:CreateSection({ name = "Noli" })
+KillerTab:CreateToggle({
+    name = "Noli Rush Control", value = false, flag = "Noli_Ctrl",
+    callback = function(v) Noli.Enabled = v noliUpdate() end,
 })
-SafeToggle(KillerTab, {
-    Name = "Noli Rush Auto Target", CurrentValue = false, Flag = "Noli_Auto",
-    Callback = function(v) Noli.AutoTarget = v noliUpdate() end,
+KillerTab:CreateToggle({
+    name = "Noli Rush Auto Target", value = false, flag = "Noli_Auto",
+    callback = function(v) Noli.AutoTarget = v noliUpdate() end,
 })
-SafeToggle(KillerTab, {
-    Name = "Noli Rush Anti Crash", CurrentValue = false, Flag = "Noli_Crash",
-    Callback = function(v) noliSetAntiCrash(v) end,
+KillerTab:CreateToggle({
+    name = "Noli Rush Anti Crash", value = false, flag = "Noli_Crash",
+    callback = function(v) noliSetAntiCrash(v) end,
 })
-SafeToggle(KillerTab, {
-    Name = "Auto Detonate Nova", CurrentValue = false, Flag = "Noli_Nova",
-    Callback = function(v) noliSetAutoNova(v) end,
+KillerTab:CreateToggle({
+    name = "Auto Detonate Nova", value = false, flag = "Noli_Nova",
+    callback = function(v) noliSetAutoNova(v) end,
 })
-SafeSlider(KillerTab, {
-    Name = "Dash Speed", Range = {50, 200}, Increment = 1,
-    CurrentValue = 60, Flag = "Noli_Speed",
-    Callback = function(v) Noli.DashSpeed = v end,
+KillerTab:CreateSlider({
+    name = "Dash Speed", range = {50, 200}, increment = 1,
+    value = 60, flag = "Noli_Speed",
+    callback = function(v) Noli.DashSpeed = v end,
 })
-SafeSlider(KillerTab, {
-    Name = "Rush Control Strength (%)", Range = {0, 100}, Increment = 1,
-    CurrentValue = 100, Flag = "Noli_Str",
-    Callback = function(v) Noli.ControlStrength = math.clamp(v / 100, 0, 1) end,
+KillerTab:CreateSlider({
+    name = "Rush Control Strength (%)", range = {0, 100}, increment = 1,
+    value = 100, flag = "Noli_Str",
+    callback = function(v) Noli.ControlStrength = math.clamp(v / 100, 0, 1) end,
 })
-SafeSection(KillerTab, "Azure")
-SafeToggle(KillerTab, {
-    Name = "Auto Trap Minigame", CurrentValue = false, Flag = "AZ_QTE",
-    Callback = function(v) AZ.AutoQTE = v if v then azHookQTE() end end,
+KillerTab:CreateSection({ name = "Azure" })
+KillerTab:CreateToggle({
+    name = "Auto Trap Minigame", value = false, flag = "AZ_QTE",
+    callback = function(v) AZ.AutoQTE = v if v then azHookQTE() end end,
 })
-SafeToggle(KillerTab, {
-    Name = "Infinite QTE Attempts", CurrentValue = false, Flag = "AZ_Inf",
-    Callback = function(v) AZ.InfiniteQTE = v if v then azHookQTE() end end,
+KillerTab:CreateToggle({
+    name = "Infinite QTE Attempts", value = false, flag = "AZ_Inf",
+    callback = function(v) AZ.InfiniteQTE = v if v then azHookQTE() end end,
 })
-SafeToggle(KillerTab, {
-    Name = "Aim on Tentacles (Grab)", CurrentValue = false, Flag = "AZ_Grab",
-    Callback = function(v) azSetGrabAim(v) end,
+KillerTab:CreateToggle({
+    name = "Aim on Tentacles (Grab)", value = false, flag = "AZ_Grab",
+    callback = function(v) azSetGrabAim(v) end,
 })
-SafeToggle(KillerTab, {
-    Name = "Aim on Unearthing (Golem)", CurrentValue = false, Flag = "AZ_Golem",
-    Callback = function(v) azSetGolemAim(v) end,
+KillerTab:CreateToggle({
+    name = "Aim on Unearthing (Golem)", value = false, flag = "AZ_Golem",
+    callback = function(v) azSetGolemAim(v) end,
 })
-SafeSlider(KillerTab, {
-    Name = "Grab Prediction (s)", Range = {0, 0.5}, Increment = 0.01,
-    CurrentValue = 0.03, Flag = "AZ_Pred",
-    Callback = function(v) AZ.GrabLead = v end,
+KillerTab:CreateSlider({
+    name = "Grab Prediction (s)", range = {0, 0.5}, increment = 0.01,
+    value = 0.03, flag = "AZ_Pred",
+    callback = function(v) AZ.GrabLead = v end,
 })
-SafeSlider(KillerTab, {
-    Name = "Grab Smoothness", Range = {0.05, 1}, Increment = 0.01,
-    CurrentValue = 0.3, Flag = "AZ_Smooth",
-    Callback = function(v) AZ.GrabSmooth = v end,
+KillerTab:CreateSlider({
+    name = "Grab Smoothness", range = {0.05, 1}, increment = 0.01,
+    value = 0.3, flag = "AZ_Smooth",
+    callback = function(v) AZ.GrabSmooth = v end,
 })
 
 -- ========== MISC ==========
-local MiscTab = Window:CreateTab("Misc", ICON)
-SafeSection(MiscTab, "Auto Gen")
-SafeToggle(MiscTab, {
-    Name = "Enable Auto Gen", CurrentValue = false, Flag = "Gen_On",
-    Callback = function(v) AUTOGEN.Enabled = v end,
+local MiscTab = Window:CreateTab({ name = "Misc", icon = 4483362458 })
+MiscTab:CreateSection({ name = "Auto Gen" })
+MiscTab:CreateToggle({
+    name = "Enable Auto Gen", value = false, flag = "Gen_On",
+    callback = function(v) AUTOGEN.Enabled = v end,
 })
-SafeSlider(MiscTab, {
-    Name = "Generator Max Range", Range = {5, 30}, Increment = 1, Suffix = " studs",
-    CurrentValue = AUTOGEN.MaxDistance, Flag = "Gen_Range",
-    Callback = function(v) AUTOGEN.MaxDistance = v end,
+MiscTab:CreateSlider({
+    name = "Generator Max Range", range = {5, 30}, increment = 1, suffix = " studs",
+    value = AUTOGEN.MaxDistance, flag = "Gen_Range",
+    callback = function(v) AUTOGEN.MaxDistance = v end,
 })
-SafeSlider(MiscTab, {
-    Name = "Generator Fire Interval", Range = {0.3, 5}, Increment = 0.1, Suffix = "s",
-    CurrentValue = AUTOGEN.Cooldown, Flag = "Gen_CD",
-    Callback = function(v) AUTOGEN.Cooldown = v end,
+MiscTab:CreateSlider({
+    name = "Generator Fire Interval", range = {0.3, 5}, increment = 0.1, suffix = "s",
+    value = AUTOGEN.Cooldown, flag = "Gen_CD",
+    callback = function(v) AUTOGEN.Cooldown = v end,
 })
-SafeSection(MiscTab, "Utilities")
-SafeButton(MiscTab, {
-    Name = "Fullbright",
-    Callback = function()
+MiscTab:CreateSection({ name = "Utilities" })
+MiscTab:CreateButton({
+    name = "Fullbright",
+    callback = function()
         Lighting.Ambient = Color3.new(1,1,1)
         Lighting.OutdoorAmbient = Color3.new(1,1,1)
         Lighting.Brightness = 2
@@ -1609,9 +1591,9 @@ SafeButton(MiscTab, {
         if atmo then atmo:Destroy() end
     end,
 })
-SafeButton(MiscTab, {
-    Name = "Show Chat",
-    Callback = function()
+MiscTab:CreateButton({
+    name = "Show Chat",
+    callback = function()
         pcall(function()
             local cfg = TextChatService:FindFirstChildOfClass("ChatWindowConfiguration")
             local inp = TextChatService:FindFirstChildOfClass("ChatInputBarConfiguration")
@@ -1620,18 +1602,18 @@ SafeButton(MiscTab, {
         end)
     end,
 })
-SafeButton(MiscTab, {
-    Name = "Reset Character",
-    Callback = function()
+MiscTab:CreateButton({
+    name = "Reset Character",
+    callback = function()
         local char = lp.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then hum.Health = 0 end
     end,
 })
-SafeSection(MiscTab, "Scripts")
-SafeButton(MiscTab, {
-    Name = "Anti Lag",
-    Callback = function()
+MiscTab:CreateSection({ name = "Scripts" })
+MiscTab:CreateButton({
+    name = "Anti Lag",
+    callback = function()
         task.spawn(function()
             pcall(function()
                 loadstring(game:HttpGet("https://raw.githubusercontent.com/zxcursedsocute/Forsaken-Script/refs/heads/main/anti%20lag%20test"))()
@@ -1642,9 +1624,9 @@ SafeButton(MiscTab, {
 
 task.wait(0.5)
 pcall(function()
-    Rayfield:Notify({
-        Title = "Hunter Hub",
-        Content = "Loaded. All tabs available.",
-        Duration = 5,
+    Window:Notify({
+        title = "Hunter Hub",
+        content = "Loaded. Rayfield Gen2.",
+        duration = 5,
     })
 end)
