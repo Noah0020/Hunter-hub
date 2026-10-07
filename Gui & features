@@ -1,5 +1,5 @@
 -- Hunter Hub
--- ESP + Stam + Auto Block + HDT + Auto Aim (fixed) + Guest Aim + Stab + Hitbox + Misc
+-- ESP + Stam + Auto Block + HDT + Auto Aim + Guest Aim + Stab + Hitbox + Block Box + Misc
 -- UI: Rayfield Gen2
 
 repeat task.wait() until game:IsLoaded()
@@ -462,12 +462,12 @@ lp.CharacterAdded:Connect(function()
 end)
 
 -- =========================================================
--- AUTO AIM (FIXED)
+-- AUTO AIM
 -- =========================================================
 
 AIM = {
     Enabled     = false,
-    ForceAim    = false,          -- skips ability-event gating entirely
+    ForceAim    = false,
     AimMode     = "Camera",
     Smooth      = 0.35,
     PredictMode = "Both",
@@ -475,7 +475,7 @@ AIM = {
     PingMult    = 1.0,
     Debug       = false,
 
-    MatchActive     = true,       -- default true; no longer a hard gate
+    MatchActive     = true,
     EventActive     = false,
     EventRefCount   = 0,
     CurrentAbility  = nil,
@@ -501,9 +501,8 @@ local ABILITY_SOUND_KEYS = {
 local PING_ABILITIES = { AimGun = true, GunFire = true, GunExplode = true, GunFail = true }
 local SOUND_FIELDS = {"Sounds", "Sound", "SFX", "Sfx", "SoundEffects", "SoundIds"}
 
--- Hardcoded fallback so aim works even when the asset config doesn't match.
 local STATIC_ABILITY_ANIMS = {
-    ["133491532453922"] = "AimGun",   -- Chance Shoot
+    ["133491532453922"] = "AimGun",
 }
 local STATIC_ABILITY_SOUNDS = {}
 
@@ -540,7 +539,6 @@ end
 local function loadMyAbilityIds(char)
     AIM.AnimIds  = {}
     AIM.SoundIds = {}
-    -- seed with static fallbacks so aim always has something to work with
     for id, name in pairs(STATIC_ABILITY_ANIMS) do AIM.AnimIds[id] = name end
     for id, name in pairs(STATIC_ABILITY_SOUNDS) do AIM.SoundIds[id] = name end
 
@@ -623,8 +621,6 @@ local function attachAnimWatcher(char)
     end)
 end
 
--- Generic watcher: fires on any Action-priority animation. Backstop for when
--- the asset config isn't matched.
 local GENERIC_ABILITY_MIN_LEN = 0.1
 local function attachGenericWatcher(char)
     if AIM.GenericConn then pcall(function() AIM.GenericConn:Disconnect() end) AIM.GenericConn = nil end
@@ -643,7 +639,6 @@ local function attachGenericWatcher(char)
         local dur = track.Length
         if not dur or dur < GENERIC_ABILITY_MIN_LEN then return end
         local animId = track.Animation and tostring(track.Animation.AnimationId):match("%d+") or "?"
-        -- Skip if the anim watcher already caught this ID
         if AIM.AnimIds[animId] then return end
         pushEvent("Generic")
         local ended = false
@@ -785,7 +780,6 @@ local function applyAim(targetPos)
     end
 end
 
--- Public trigger used by Force Aim keybind
 function AIM.ForceAimNow(duration)
     AIM._forceUntil = tick() + (duration or 1.0)
 end
@@ -802,20 +796,19 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- =========================================================
--- GUEST AIM (Guest 1337 punch + aim)
+-- GUEST AIM
 -- =========================================================
 
 GUESTAIM = {
     Enabled           = false,
-    AutoPunchOnParry  = true,          -- fire Punch when parry succeeds
-    AutoPunchOnM1     = false,         -- fire Punch whenever you M1
+    AutoPunchOnParry  = true,
+    AutoPunchOnM1     = false,
     AimOnPunch        = true,
-    AimMode           = "Character",   -- Character | Camera | Both
-    AimDuration       = 0.8,           -- seconds to keep lock after punch starts
-    PredictionLead    = 0.15,          -- seconds of lead on target motion
-    TargetRange       = 100,           -- how far to search for a target
-    Cooldown          = 0.8,           -- min time between auto-punches
-
+    AimMode           = "Character",
+    AimDuration       = 0.8,
+    PredictionLead    = 0.15,
+    TargetRange       = 100,
+    Cooldown          = 0.8,
     _lastPunch        = 0,
     _aimUntil         = 0,
     _parryConn        = nil,
@@ -823,7 +816,6 @@ GUESTAIM = {
     _parrySetupDone   = false,
 }
 
--- Fallback punch anim list (used to detect our own punch for the aim window)
 local GUEST_PUNCH_ANIMS = {
     ["87259391926321"]  = true, ["99100240941590"]  = true, ["72685103823181"]  = true,
     ["81905101227053"]  = true, ["113936304594883"] = true, ["140703210927645"] = true,
@@ -847,7 +839,6 @@ local function guestStartAimWindow()
     GUESTAIM._aimUntil = tick() + (GUESTAIM.AimDuration or 0.8)
 end
 
--- Hook parry signal: network:SetConnection("<Name>%*1337ParryIcon", ...)
 local function guestSetupParryHook()
     if GUESTAIM._parrySetupDone then return true end
     local ok, netMod = pcall(function()
@@ -859,9 +850,7 @@ local function guestSetupParryHook()
     local ok2 = pcall(function()
         netMod:SetConnection(("%*1337ParryIcon"):format(lp.Name), "REMOTE_EVENT", function(blocked)
             if blocked and GUESTAIM.Enabled and GUESTAIM.AutoPunchOnParry then
-                if guestFirePunch() then
-                    guestStartAimWindow()
-                end
+                if guestFirePunch() then guestStartAimWindow() end
             end
         end)
     end)
@@ -869,7 +858,6 @@ local function guestSetupParryHook()
     return ok2
 end
 
--- Watch our own animator for the punch animation to trigger the aim window
 local function guestHookOwnAnimator(char)
     if GUESTAIM._animConn then pcall(function() GUESTAIM._animConn:Disconnect() end) GUESTAIM._animConn = nil end
     if not char then return end
@@ -880,9 +868,7 @@ local function guestHookOwnAnimator(char)
         if not GUESTAIM.Enabled then return end
         local id = track.Animation and tostring(track.Animation.AnimationId):match("(%d+)")
         if not id then return end
-        if GUEST_PUNCH_ANIMS[id] then
-            guestStartAimWindow()
-        end
+        if GUEST_PUNCH_ANIMS[id] then guestStartAimWindow() end
     end)
 end
 
@@ -903,7 +889,6 @@ if lp.Character then
     end)
 end
 
--- Aim tick
 RunService.RenderStepped:Connect(function()
     if not GUESTAIM.Enabled then return end
     if not GUESTAIM.AimOnPunch then return end
@@ -913,7 +898,6 @@ RunService.RenderStepped:Connect(function()
     local myRoot = getMyRoot()
     if not myRoot then return end
 
-    -- Find best target within range
     local best, bestD = nil, GUESTAIM.TargetRange
     if KillersFolder then
         for _, k in ipairs(KillersFolder:GetChildren()) do
@@ -1085,18 +1069,10 @@ local function refreshItems()
     end
 end
 
-local function clearKillerESP()
-    for m in pairs(espTrackers.Killers) do detachHighlight(m, espTrackers.Killers) end
-end
-local function clearSurvivorESP()
-    for m in pairs(espTrackers.Survivors) do detachHighlight(m, espTrackers.Survivors) end
-end
-local function clearGeneratorESP()
-    for m in pairs(espTrackers.Generators) do detachHighlight(m, espTrackers.Generators) end
-end
-local function clearItemESP()
-    for m in pairs(espTrackers.Items) do detachHighlight(m, espTrackers.Items) end
-end
+local function clearKillerESP() for m in pairs(espTrackers.Killers) do detachHighlight(m, espTrackers.Killers) end end
+local function clearSurvivorESP() for m in pairs(espTrackers.Survivors) do detachHighlight(m, espTrackers.Survivors) end end
+local function clearGeneratorESP() for m in pairs(espTrackers.Generators) do detachHighlight(m, espTrackers.Generators) end end
+local function clearItemESP() for m in pairs(espTrackers.Items) do detachHighlight(m, espTrackers.Items) end end
 
 task.spawn(function()
     while true do
@@ -1572,7 +1548,7 @@ lp.CharacterAdded:Connect(function(char)
 end)
 
 -- =========================================================
--- FACING VISUAL (box only)
+-- BLOCK BOX (facing flash box)
 -- =========================================================
 
 FacingVisual = {
@@ -1583,6 +1559,7 @@ FacingVisual = {
     boxVisuals    = {},
     GameBoxStyle  = nil,
 
+    -- Flash timing
     FlashDuration     = 0.25,
     FlashFade         = 0.15,
     FlashOnKillerM1   = true,
@@ -1590,8 +1567,12 @@ FacingVisual = {
     FlashOnFacingFlip = false,
     FlashOnBlock      = false,
 
-    BoxHeight   = 7,
+    -- Box dimensions (manual by default)
+    BoxWidth    = 6,
+    BoxLength   = 15,
+    BoxHeight   = 6,
     BoxFill     = 0.5,
+    AutoWidth   = false,
     BoxMaxAngle = 75,
 
     _blockPulse     = 0,
@@ -1735,19 +1716,27 @@ local function updateBoxVisual(killer, data)
         alpha = 1 - math.clamp((now - flashUntil) / span, 0, 1)
     end
 
-    local dot = facingDotClamped()
-    local halfAngle = math.acos(dot)
-    halfAngle = math.min(halfAngle, math.rad(FacingVisual.BoxMaxAngle or 75))
+    -- Dimensions
+    local length = FacingVisual.BoxLength or 15
+    local width
+    if FacingVisual.AutoWidth then
+        local dot = facingDotClamped()
+        local halfAngle = math.acos(dot)
+        halfAngle = math.min(halfAngle, math.rad(FacingVisual.BoxMaxAngle or 75))
+        width = 2 * length * math.tan(halfAngle)
+        width = math.min(width, length * 3)
+    else
+        width = FacingVisual.BoxWidth or 6
+    end
+    if width < 0.1 then width = 0.1 end
+    local height = FacingVisual.BoxHeight or 6
+    if height < 0.1 then height = 0.1 end
+    if length < 0.1 then length = 0.1 end
 
-    local range = CFG.DetectionRange
-    local width = 2 * range * math.tan(halfAngle)
-    width = math.min(width, range * 3)
-    if width < 1 then width = 1 end
-
-    p.Size = Vector3.new(width, FacingVisual.BoxHeight or 7, range)
+    p.Size = Vector3.new(width, height, length)
     local origin = hrp.Position
     local look   = hrp.CFrame.LookVector
-    local center = origin + look * (range / 2)
+    local center = origin + look * (length / 2)
     p.CFrame = CFrame.lookAt(center, center + look)
     p.Color = color
     p.Material = (FacingVisual.GameBoxStyle and FacingVisual.GameBoxStyle.Material) or Enum.Material.ForceField
@@ -1905,7 +1894,7 @@ HDTTab:CreateSlider({ name = "Safety Timeout", range = {0.2, 1.5}, increment = 0
 HDTTab:CreateKeybind({ name = "Manual HDT Trigger", value = Enum.KeyCode.Q,
     callback = function() HDT.Trigger() end })
 
--- ========== AUTO AIM (fixed) ==========
+-- ========== AUTO AIM ==========
 local AimTab = Window:CreateTab({ name = "Auto Aim", icon = 4483362458 })
 AimTab:CreateSection({ name = "Core" })
 AimTab:CreateToggle({ name = "Enable Auto Aim", value = false, flag = "Aim_On",
@@ -2041,6 +2030,129 @@ GuestTab:CreateText({
     text = "Guest Aim auto-punches when your parry succeeds. It then locks aim on the nearest killer for Aim Duration seconds so your punch lands. Requires you to be playing Guest1337.",
 })
 
+-- ========== BLOCK BOX ==========
+local BoxTab = Window:CreateTab({ name = "Block Box", icon = 4483362458 })
+
+BoxTab:CreateSection({ name = "Box Check (Killer M1 Flash)" })
+BoxTab:CreateText({
+    name = "Info",
+    text = "Invisible box that flashes the instant a killer M1s (attack anim/sound). Uses the game's own hitbox style. Runs independent of Auto Block. Width / Length / Height are manual — turn Auto Width ON to scale from FacingDot instead.",
+})
+BoxTab:CreateToggle({
+    name = "Enable Box Check", value = false, flag = "FV_Box",
+    callback = function(v)
+        FacingVisual.BoxEnabled = v
+        if not v then
+            for k, data in pairs(FacingVisual.boxVisuals) do
+                if data.highlight and data.highlight.Parent then pcall(function() data.highlight:Destroy() end) end
+                if data.part and data.part.Parent then pcall(function() data.part:Destroy() end) end
+            end
+            FacingVisual.boxVisuals = {}
+        end
+    end,
+})
+BoxTab:CreateToggle({
+    name = "Flash on Killer M1", value = true, flag = "FV_FlashM1",
+    callback = function(v) FacingVisual.FlashOnKillerM1 = v end,
+})
+
+BoxTab:CreateSection({ name = "Box Dimensions" })
+BoxTab:CreateSlider({
+    name = "Width (studs)", range = { 0, 30 }, increment = 0.5,
+    value = FacingVisual.BoxWidth, flag = "FV_BoxWidth",
+    callback = function(v) FacingVisual.BoxWidth = v end,
+})
+BoxTab:CreateSlider({
+    name = "Length (studs)", range = { 0, 30 }, increment = 0.5,
+    value = FacingVisual.BoxLength, flag = "FV_BoxLength",
+    callback = function(v) FacingVisual.BoxLength = v end,
+})
+BoxTab:CreateSlider({
+    name = "Height (studs)", range = { 0, 30 }, increment = 0.5,
+    value = FacingVisual.BoxHeight, flag = "FV_BoxHeight",
+    callback = function(v) FacingVisual.BoxHeight = v end,
+})
+BoxTab:CreateToggle({
+    name = "Auto Width from FacingDot", value = false, flag = "FV_AutoWidth",
+    callback = function(v) FacingVisual.AutoWidth = v end,
+})
+BoxTab:CreateText({
+    name = "Auto Width Hint",
+    text = "When ON, width is ignored and computed from acos(FacingDot) × Length. Turn OFF to use the Width slider.",
+})
+
+BoxTab:CreateSection({ name = "Appearance" })
+BoxTab:CreateSlider({
+    name = "Box Bright Transparency", range = { 0, 0.95 }, increment = 0.05,
+    value = FacingVisual.BoxFill, flag = "FV_BoxFill",
+    callback = function(v) FacingVisual.BoxFill = v end,
+})
+BoxTab:CreateColorPicker({
+    name = "Pass Color (in range + facing)",
+    color = FacingVisual.PassColor, flag = "FV_PassColor",
+    callback = function(c) FacingVisual.PassColor = c end,
+})
+BoxTab:CreateColorPicker({
+    name = "In Range, Not Facing",
+    color = FacingVisual.InRangeColor, flag = "FV_InRangeColor",
+    callback = function(c) FacingVisual.InRangeColor = c end,
+})
+BoxTab:CreateColorPicker({
+    name = "Out of Range",
+    color = FacingVisual.OutRangeColor, flag = "FV_OutRangeColor",
+    callback = function(c) FacingVisual.OutRangeColor = c end,
+})
+
+BoxTab:CreateSection({ name = "Flash Timing" })
+BoxTab:CreateSlider({
+    name = "Flash Duration", range = { 0.05, 1.0 }, increment = 0.01, suffix = "s",
+    value = FacingVisual.FlashDuration, flag = "FV_FlashDur",
+    callback = function(v) FacingVisual.FlashDuration = v end,
+})
+BoxTab:CreateSlider({
+    name = "Fade-Out Time", range = { 0.0, 1.0 }, increment = 0.01, suffix = "s",
+    value = FacingVisual.FlashFade, flag = "FV_FlashFade",
+    callback = function(v) FacingVisual.FlashFade = v end,
+})
+
+BoxTab:CreateSection({ name = "Secondary Triggers (optional)" })
+BoxTab:CreateToggle({
+    name = "Flash on Enter Range", value = false, flag = "FV_FlashEnter",
+    callback = function(v) FacingVisual.FlashOnEnterRange = v end,
+})
+BoxTab:CreateToggle({
+    name = "Flash on Facing Flip", value = false, flag = "FV_FlashFlip",
+    callback = function(v) FacingVisual.FlashOnFacingFlip = v end,
+})
+BoxTab:CreateToggle({
+    name = "Flash on Auto Block Fire", value = false, flag = "FV_FlashBlock",
+    callback = function(v) FacingVisual.FlashOnBlock = v end,
+})
+
+BoxTab:CreateSection({ name = "Advanced" })
+BoxTab:CreateSlider({
+    name = "Auto Width Max Angle", range = { 20, 85 }, increment = 1, suffix = "°",
+    value = FacingVisual.BoxMaxAngle, flag = "FV_BoxMaxAngle",
+    callback = function(v) FacingVisual.BoxMaxAngle = v end,
+})
+BoxTab:CreateButton({
+    name = "Re-sniff game box style",
+    callback = function()
+        FacingVisual.GameBoxStyle = fvSniffGameBoxStyle()
+        Window:Notify({ title = "Block Box", content = "Re-sampled game hitbox style.", duration = 3 })
+    end,
+})
+BoxTab:CreateButton({
+    name = "Reset to defaults (6 / 15 / 6)",
+    callback = function()
+        FacingVisual.BoxWidth = 6
+        FacingVisual.BoxLength = 15
+        FacingVisual.BoxHeight = 6
+        FacingVisual.AutoWidth = false
+        Window:Notify({ title = "Block Box", content = "Reset: Width 6, Length 15, Height 6.", duration = 3 })
+    end,
+})
+
 -- ========== STAB ==========
 local StabTab = Window:CreateTab({ name = "Stab", icon = 4483362458 })
 StabTab:CreateSection({ name = "Activation" })
@@ -2069,59 +2181,8 @@ StabTab:CreateSection({ name = "Actions" })
 StabTab:CreateButton({ name = "Activate Stab Now",
     callback = function() stabActivate() end })
 
--- ========== MISC (includes Box Check) ==========
+-- ========== MISC ==========
 local MiscTab = Window:CreateTab({ name = "Misc", icon = 4483362458 })
-
-MiscTab:CreateSection({ name = "Box Check (Killer M1 Flash)" })
-MiscTab:CreateText({
-    name = "Info",
-    text = "Invisible box that flashes the instant a killer M1s (attack anim/sound). Uses the game's own hitbox style. Runs independent of Auto Block.",
-})
-MiscTab:CreateToggle({
-    name = "Enable Box Check", value = false, flag = "FV_Box",
-    callback = function(v)
-        FacingVisual.BoxEnabled = v
-        if not v then
-            for k, data in pairs(FacingVisual.boxVisuals) do
-                if data.highlight and data.highlight.Parent then pcall(function() data.highlight:Destroy() end) end
-                if data.part and data.part.Parent then pcall(function() data.part:Destroy() end) end
-            end
-            FacingVisual.boxVisuals = {}
-        end
-    end,
-})
-MiscTab:CreateSlider({
-    name = "Flash Duration", range = { 0.05, 1.0 }, increment = 0.01, suffix = "s",
-    value = FacingVisual.FlashDuration, flag = "FV_FlashDur",
-    callback = function(v) FacingVisual.FlashDuration = v end,
-})
-MiscTab:CreateSlider({
-    name = "Fade-Out Time", range = { 0.0, 1.0 }, increment = 0.01, suffix = "s",
-    value = FacingVisual.FlashFade, flag = "FV_FlashFade",
-    callback = function(v) FacingVisual.FlashFade = v end,
-})
-MiscTab:CreateSlider({
-    name = "Box Height", range = { 2, 16 }, increment = 0.5, suffix = " studs",
-    value = FacingVisual.BoxHeight, flag = "FV_BoxHeight",
-    callback = function(v) FacingVisual.BoxHeight = v end,
-})
-MiscTab:CreateSlider({
-    name = "Box Bright Transparency", range = { 0, 0.95 }, increment = 0.05,
-    value = FacingVisual.BoxFill, flag = "FV_BoxFill",
-    callback = function(v) FacingVisual.BoxFill = v end,
-})
-MiscTab:CreateSlider({
-    name = "Box Max Angle", range = { 20, 85 }, increment = 1, suffix = "°",
-    value = FacingVisual.BoxMaxAngle, flag = "FV_BoxMaxAngle",
-    callback = function(v) FacingVisual.BoxMaxAngle = v end,
-})
-MiscTab:CreateButton({
-    name = "Re-sniff game box style",
-    callback = function()
-        FacingVisual.GameBoxStyle = fvSniffGameBoxStyle()
-        Window:Notify({ title = "Box Check", content = "Re-sampled game hitbox style.", duration = 3 })
-    end,
-})
 
 MiscTab:CreateSection({ name = "Azure (Killer)" })
 MiscTab:CreateToggle({ name = "Auto QTE (auto plant/disarm)", value = false, flag = "AZ_QTE",
@@ -2214,7 +2275,7 @@ task.wait(0.5)
 pcall(function()
     Window:Notify({
         title = "Hunter Hub",
-        content = "Loaded. Guest Aim tab added. Auto Aim fixed (Force Aim on C). Box check now in Misc.",
+        content = "Loaded. Enjoy the script twin.",
         duration = 5,
     })
 end)
