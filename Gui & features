@@ -1,5 +1,5 @@
 -- Hunter Hub
--- ESP + Stam + Auto Block + HDT + Auto Aim (HunterAim v10) + Stab + Hitbox + Facing Visual + Misc
+-- ESP + Stam + Auto Block + HDT + Auto Aim (HunterAim v10) + Stab + Hitbox Expander + Facing Visual + Misc
 -- UI: Rayfield Gen2
 
 repeat task.wait() until game:IsLoaded()
@@ -51,12 +51,14 @@ local BLOCK_COOLDOWN = 0.55
 
 local HDT, AIM, AUTOGEN, STAB, AZ, HBE, FacingVisual
 
--- HDT only fires on real block anim; block remote does not chain HDT
 local function fireBlock()
     local now = tick()
     if now - lastBlockFire < BLOCK_COOLDOWN then return false end
     lastBlockFire = now
     RemoteEvent:FireServer("UseActorAbility", { BLOCK_BUF })
+    if FacingVisual then
+        FacingVisual._blockPulse = (FacingVisual._blockPulse or 0) + 1
+    end
     return true
 end
 
@@ -140,12 +142,6 @@ local function extractSoundId(sound)
     return tostring(sid):match("(%d+)")
 end
 
-local function soundToKillerRoot(sound)
-    local ancestor = sound:FindFirstAncestorOfClass("Model")
-    if not ancestor or ancestor.Parent ~= KillersFolder then return nil end
-    return ancestor:FindFirstChild("HumanoidRootPart")
-end
-
 -- =========================================================
 -- DETECTION DATA
 -- =========================================================
@@ -175,8 +171,8 @@ local TRIGGER_SOUNDS = {
     ["80540530406270"]=true,["139523195429581"]=true,["105204810054381"]=true,["116468089135195"]=true,
     ["133709029886490"]=true,["124234993291213"]=true,["98733709078792"]=true,["99856718263455"]=true,
     ["74809026448465"]=true,
-    ["99215225043220"]=true,   -- Slasher
-    ["79612713897495"]=true,   -- Sixer
+    ["99215225043220"]=true,
+    ["79612713897495"]=true,
 }
 
 local TRIGGER_ANIMS = {
@@ -197,26 +193,39 @@ local TRIGGER_ANIMS = {
     "129843313690921","86709774283672","108807732150251","138040001965654",
     "86096387000557","119850211147676","131696603025265","119462383658044",
     "116618003477002","133491532453922","76649505662612","71190646367497",
-    "109572851772132",  -- Slasher
-    "129638875679599",  -- Sixer
+    "109572851772132",
+    "129638875679599",
 }
 local TRIGGER_ANIMS_SET = {}
 for _, id in ipairs(TRIGGER_ANIMS) do TRIGGER_ANIMS_SET[id] = true end
 
 -- =========================================================
--- AUTO BLOCK
+-- AUTO BLOCK (also drives the M1 flash)
 -- =========================================================
 
 local hookedSounds = {}
 
 local function onSoundTrigger(sound)
-    if not CFG.AutoBlockEnabled or not CFG.SoundTrigger then return end
     local id = extractSoundId(sound)
     if not id or not TRIGGER_SOUNDS[id] then return end
-    local killerRoot = soundToKillerRoot(sound)
+    local ancestor = sound:FindFirstAncestorOfClass("Model")
+    if not ancestor or ancestor.Parent ~= KillersFolder then return end
+
+    -- Flash the box the instant the killer's attack sound fires.
+    if FacingVisual and FacingVisual.FlashKiller then
+        FacingVisual.FlashKiller(ancestor)
+    end
+
+    -- Auto Block path
+    if not CFG.AutoBlockEnabled or not CFG.SoundTrigger then return end
+    local killerRoot = ancestor:FindFirstChild("HumanoidRootPart")
     if not killerRoot then return end
     if not shouldBlock(killerRoot) then return end
-    if CFG.BlockDelay > 0 then task.delay(CFG.BlockDelay, fireBlock) else fireBlock() end
+    if CFG.BlockDelay > 0 then
+        task.delay(CFG.BlockDelay, fireBlock)
+    else
+        fireBlock()
+    end
 end
 
 local function hookSound(sound)
@@ -242,13 +251,24 @@ end
 local hookedAnims = {}
 
 local function onAnimPlayed(killerModel, track)
-    if not CFG.AutoBlockEnabled or not CFG.AnimTrigger then return end
     local animId = track.Animation and tostring(track.Animation.AnimationId):match("(%d+)")
     if not animId or not TRIGGER_ANIMS_SET[animId] then return end
+
+    -- Flash the box the instant the killer's attack animation starts.
+    if FacingVisual and FacingVisual.FlashKiller then
+        FacingVisual.FlashKiller(killerModel)
+    end
+
+    -- Auto Block path
+    if not CFG.AutoBlockEnabled or not CFG.AnimTrigger then return end
     local killerRoot = killerModel:FindFirstChild("HumanoidRootPart")
     if not killerRoot then return end
     if not shouldBlock(killerRoot) then return end
-    if CFG.BlockDelay > 0 then task.delay(CFG.BlockDelay, fireBlock) else fireBlock() end
+    if CFG.BlockDelay > 0 then
+        task.delay(CFG.BlockDelay, fireBlock)
+    else
+        fireBlock()
+    end
 end
 
 local function hookKiller(killerModel)
@@ -1236,7 +1256,7 @@ local function azHookQTE()
 end
 
 -- =========================================================
--- HITBOX EXPANDER (code only; UI lives in Misc tab)
+-- HITBOX EXPANDER (code; UI inside Misc)
 -- =========================================================
 
 HBE = {
@@ -1245,10 +1265,8 @@ HBE = {
     SizeMultiplier    = 1.5,
     ApplyOnlyOnAttack = false,
     Visualize         = false,
-
     VelocitySpeed     = 55,
     VelocityStopDist  = 2,
-
     _char       = nil,
     _hitbox     = nil,
     _origSize   = nil,
@@ -1284,11 +1302,7 @@ local function hbeDesiredSize()
     local active = (not HBE.ApplyOnlyOnAttack) or HBE._attackOpen
     if not active then return HBE._origSize end
     local m = HBE.SizeMultiplier
-    return Vector3.new(
-        HBE._origSize.X * m,
-        HBE._origSize.Y * m,
-        HBE._origSize.Z * m
-    )
+    return Vector3.new(HBE._origSize.X * m, HBE._origSize.Y * m, HBE._origSize.Z * m)
 end
 
 local function hbeDestroyVisuals()
@@ -1320,9 +1334,7 @@ local function hbeApply()
     if not p or not p.Parent then return end
     local target = hbeDesiredSize()
     if not target then return end
-    if (p.Size - target).Magnitude > 0.001 then
-        p.Size = target
-    end
+    if (p.Size - target).Magnitude > 0.001 then p.Size = target end
     for _, v in ipairs(HBE._visuals) do
         if v and v.Parent then v.Size = target end
     end
@@ -1379,10 +1391,7 @@ local function hbeStartDrag()
             return
         end
         local k = nearestKillerPart()
-        if not k or not k.Parent then
-            bv.Velocity = Vector3.zero
-            return
-        end
+        if not k or not k.Parent then bv.Velocity = Vector3.zero return end
         local delta = k.Position - hrp.Position
         local horiz = Vector3.new(delta.X, 0, delta.Z)
         local dist = horiz.Magnitude
@@ -1407,13 +1416,9 @@ local function hbeDisconnectAll()
         pcall(function() HBE._sizeConn:Disconnect() end)
         HBE._sizeConn = nil
     end
-    for _, c in ipairs(HBE._charConns) do
-        pcall(function() c:Disconnect() end)
-    end
+    for _, c in ipairs(HBE._charConns) do pcall(function() c:Disconnect() end) end
     HBE._charConns = {}
-    for _, c in ipairs(HBE._animConns) do
-        pcall(function() c:Disconnect() end)
-    end
+    for _, c in ipairs(HBE._animConns) do pcall(function() c:Disconnect() end) end
     HBE._animConns = {}
     hbeStopDrag()
 end
@@ -1495,9 +1500,7 @@ local function hbeHookCharacter(char)
             if not HBE.Enabled then return end
             local want = hbeDesiredSize()
             if not want then return end
-            if (hitbox.Size - want).Magnitude > 0.01 then
-                hitbox.Size = want
-            end
+            if (hitbox.Size - want).Magnitude > 0.01 then hitbox.Size = want end
         end)
 
         local c = char.ChildAdded:Connect(function(child)
@@ -1521,9 +1524,7 @@ local function hbeHookCharacter(char)
         end)
         table.insert(HBE._charConns, c)
 
-        if HBE.ApplyOnlyOnAttack then
-            hbeHookAnimator(char)
-        end
+        if HBE.ApplyOnlyOnAttack then hbeHookAnimator(char) end
 
         hbeApply()
         hbeApplyVisual()
@@ -1552,7 +1553,7 @@ lp.CharacterAdded:Connect(function(char)
 end)
 
 -- =========================================================
--- FACING VISUAL (code only; UI added after tab creation)
+-- FACING VISUAL (flashing box + circle + range)
 -- =========================================================
 
 FacingVisual = {
@@ -1565,7 +1566,52 @@ FacingVisual = {
     circleVisuals = {},
     rangeCircles  = {},
     boxVisuals    = {},
+    GameBoxStyle  = nil,
+
+    -- Flash timings (defaults sized to cover a typical M1 swing)
+    FlashDuration     = 0.25,
+    FlashFade         = 0.15,
+
+    -- Flash triggers
+    FlashOnKillerM1   = true,   -- primary: anim/sound fires => box appears with M1
+    FlashOnEnterRange = false,  -- optional secondary triggers
+    FlashOnFacingFlip = false,
+    FlashOnBlock      = false,
+
+    BoxHeight   = 7,
+    BoxFill     = 0.5,
+    BoxMaxAngle = 75,
+
+    _blockPulse     = 0,
+    _lastBlockPulse = 0,
 }
+
+-- Sniff the game's own hitbox visual style (fallback to defaults)
+local function fvSniffGameBoxStyle()
+    for _, d in ipairs(workspace:GetDescendants()) do
+        if d:IsA("BasePart") and (d.Name:lower():find("hitbox") or d:FindFirstChild("HitboxHighlight")) then
+            local hl = d:FindFirstChild("HitboxHighlight") or d:FindFirstChildOfClass("Highlight")
+            if hl then
+                return {
+                    Material                     = d.Material,
+                    Transparency                 = d.Transparency,
+                    HighlightFillTransparency    = hl.FillTransparency,
+                    HighlightOutlineTransparency = hl.OutlineTransparency,
+                    DepthMode                    = hl.DepthMode,
+                }
+            end
+        end
+    end
+    return {
+        Material                     = Enum.Material.ForceField,
+        Transparency                 = 0.5,
+        HighlightFillTransparency    = 1,
+        HighlightOutlineTransparency = 0,
+        DepthMode                    = Enum.HighlightDepthMode.AlwaysOnTop,
+    }
+end
+
+FacingVisual.GameBoxStyle = fvSniffGameBoxStyle()
 
 local function facingDotClamped()
     return math.clamp(CFG.FacingDot or 0.25, -1, 1)
@@ -1590,6 +1636,8 @@ local function fvStateColor(ir, fp)
     if ir then return FacingVisual.InRangeColor end
     return FacingVisual.OutRangeColor
 end
+
+-- ---------- CIRCLE ----------
 
 local function addFacingCircle(killer)
     if not killer or not killer:IsA("Model") then return end
@@ -1636,6 +1684,8 @@ local function updateFacingCircle(killer, cyl)
     end
 end
 
+-- ---------- RANGE CIRCLE ----------
+
 local function addRangeCircle(killer)
     if not killer or not killer:IsA("Model") then return end
     if FacingVisual.rangeCircles[killer] then return end
@@ -1670,103 +1720,186 @@ local function updateRangeCircle(killer, cyl)
     cyl.Color3 = ir and Color3.fromRGB(255, 165, 0) or FacingVisual.OutRangeColor
 end
 
-local function fvEnsureBoxPart(data, index, suffix)
-    local p = data.parts[index]
-    if p and p.Parent then return p end
-    p = Instance.new("Part")
-    p.Name = "HunterFacingBox_" .. suffix
-    p.Anchored = true
-    p.CanCollide = false
-    p.CanQuery = false
-    p.CanTouch = false
-    p.CastShadow = false
-    p.Material = Enum.Material.Neon
-    p.Transparency = 0.5
-    p.Size = Vector3.new(0.08, 0.08, 1)
-    p.Parent = workspace
-    data.parts[index] = p
-    return p
-end
-
-local function fvDrawLine(part, fromPos, toPos, color, thickness)
-    thickness = thickness or 0.1
-    local delta = toPos - fromPos
-    local len = delta.Magnitude
-    if len < 0.001 then part.Transparency = 1 return end
-    part.Size = Vector3.new(thickness, thickness, len)
-    part.CFrame = CFrame.lookAt(fromPos, toPos) * CFrame.new(0, 0, -len / 2)
-    part.Color = color
-    part.Transparency = 0.5
-end
+-- ---------- FLASHING BOX (game-style Part + Highlight) ----------
 
 local function addFacingBox(killer)
     if not killer or not killer:IsA("Model") then return end
     if FacingVisual.boxVisuals[killer] then return end
-    FacingVisual.boxVisuals[killer] = { parts = {} }
+    FacingVisual.boxVisuals[killer] = {
+        part = nil, highlight = nil,
+        state = { inRange = false, facingPass = false },
+        flashUntil = 0, fadeUntil = 0,
+    }
 end
 
 local function removeFacingBox(killer)
     local data = FacingVisual.boxVisuals[killer]
     if not data then return end
-    for _, p in ipairs(data.parts) do
-        if p and p.Parent then p:Destroy() end
-    end
+    if data.highlight and data.highlight.Parent then pcall(function() data.highlight:Destroy() end) end
+    if data.part and data.part.Parent then pcall(function() data.part:Destroy() end) end
     FacingVisual.boxVisuals[killer] = nil
+end
+
+local function fvBuildBox(data, color)
+    local style = FacingVisual.GameBoxStyle or {}
+    local part = Instance.new("Part")
+    part.Name = "HunterFacingFlash"
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanQuery = false
+    part.CanTouch = false
+    part.CastShadow = false
+    part.Massless = true
+    part.Material = style.Material or Enum.Material.ForceField
+    part.Transparency = 1
+    part.Color = color
+    part.Size = Vector3.new(1, 1, 1)
+    part.Parent = workspace
+
+    local hl = Instance.new("Highlight")
+    hl.Name = "HunterFacingFlashHighlight"
+    hl.Adornee = part
+    hl.FillTransparency = 1
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.OutlineTransparency = 1
+    hl.DepthMode = style.DepthMode or Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = part
+
+    data.part = part
+    data.highlight = hl
+end
+
+local function fvTriggerFlash(killer)
+    local data = FacingVisual.boxVisuals[killer]
+    if not data then return end
+    local now = tick()
+    -- Always restart the flash on a fresh M1 - don't skip.
+    data.flashUntil = now + (FacingVisual.FlashDuration or 0.25)
+    data.fadeUntil  = data.flashUntil + (FacingVisual.FlashFade or 0.15)
 end
 
 local function updateBoxVisual(killer, data)
     local hrp = killer:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local dot = facingDotClamped()
-    local halfAngle = math.acos(dot)
-    halfAngle = math.min(halfAngle, math.rad(89))
-
-    local origin = hrp.Position
-    local look = hrp.CFrame.LookVector
-    local range = CFG.DetectionRange
-
-    local leftDir  = (CFrame.Angles(0,  halfAngle, 0) * look)
-    local rightDir = (CFrame.Angles(0, -halfAngle, 0) * look)
-
-    local leftEnd   = origin + leftDir  * range
-    local rightEnd  = origin + rightDir * range
-    local centerEnd = origin + look     * range
-
+    local now = tick()
     local ir, fp = getFacingState(hrp)
     local color = fvStateColor(ir, fp)
 
-    local p1 = fvEnsureBoxPart(data, 1, "L")
-    local p2 = fvEnsureBoxPart(data, 2, "R")
-    local p3 = fvEnsureBoxPart(data, 3, "Edge")
-    local p4 = fvEnsureBoxPart(data, 4, "Center")
+    -- Secondary triggers (optional): enter range / facing flip
+    local st = data.state or { inRange = false, facingPass = false }
+    local enteredRange = ir and not st.inRange
+    local facingFlip   = ir and st.inRange and (fp ~= st.facingPass)
+    data.state = { inRange = ir, facingPass = fp }
 
-    fvDrawLine(p1, origin, leftEnd,   color, 0.14)
-    fvDrawLine(p2, origin, rightEnd,  color, 0.14)
-    fvDrawLine(p3, leftEnd, rightEnd, color, 0.06)
-    fvDrawLine(p4, origin, centerEnd, color, 0.06)
+    if (FacingVisual.FlashOnEnterRange and enteredRange)
+       or (FacingVisual.FlashOnFacingFlip and facingFlip) then
+        fvTriggerFlash(killer)
+    end
+
+    if not data.part or not data.part.Parent or not data.highlight or not data.highlight.Parent then
+        fvBuildBox(data, color)
+    end
+    local p  = data.part
+    local hl = data.highlight
+
+    local flashUntil = data.flashUntil or 0
+    local fadeUntil  = data.fadeUntil or 0
+    if now >= fadeUntil then
+        if p.Transparency < 1 then p.Transparency = 1 end
+        if hl.FillTransparency < 1 then hl.FillTransparency = 1 end
+        if hl.OutlineTransparency < 1 then hl.OutlineTransparency = 1 end
+        return
+    end
+
+    local alpha
+    if now <= flashUntil then
+        alpha = 1
+    else
+        local span = math.max(fadeUntil - flashUntil, 0.001)
+        alpha = 1 - math.clamp((now - flashUntil) / span, 0, 1)
+    end
+
+    local dot = facingDotClamped()
+    local halfAngle = math.acos(dot)
+    halfAngle = math.min(halfAngle, math.rad(FacingVisual.BoxMaxAngle or 75))
+
+    local range = CFG.DetectionRange
+    local width = 2 * range * math.tan(halfAngle)
+    width = math.min(width, range * 3)
+    if width < 1 then width = 1 end
+
+    p.Size = Vector3.new(width, FacingVisual.BoxHeight or 7, range)
+    local origin = hrp.Position
+    local look   = hrp.CFrame.LookVector
+    local center = origin + look * (range / 2)
+    p.CFrame = CFrame.lookAt(center, center + look)
+    p.Color = color
+    p.Material = (FacingVisual.GameBoxStyle and FacingVisual.GameBoxStyle.Material) or Enum.Material.ForceField
+
+    local baseTrans = FacingVisual.BoxFill or 0.5
+    p.Transparency = math.clamp(baseTrans + (1 - alpha) * 0.8, 0, 1)
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency    = 1
+    hl.OutlineTransparency = 1 - alpha
 end
+
+-- Public entry point: called from the Auto Block anim/sound hooks.
+-- Builds the box lazily and fires a flash. Runs regardless of whether
+-- Auto Block itself is enabled or whether the killer is in range.
+function FacingVisual.FlashKiller(killerModel)
+    if not FacingVisual.BoxEnabled then return end
+    if not FacingVisual.FlashOnKillerM1 then return end
+    if not killerModel or not killerModel:IsA("Model") then return end
+    if not killerModel:FindFirstChild("HumanoidRootPart") then return end
+    if not FacingVisual.boxVisuals[killerModel] then
+        addFacingBox(killerModel)
+    end
+    fvTriggerFlash(killerModel)
+end
+
+-- ---------- VISUAL LOOP ----------
 
 task.spawn(function()
     while true do
         task.wait()
-        if FacingVisual.CircleEnabled or FacingVisual.BoxEnabled or FacingVisual.ShowRange then
-            if KillersFolder then
+        if not (FacingVisual.CircleEnabled or FacingVisual.BoxEnabled or FacingVisual.ShowRange) then
+            continue
+        end
+        if not KillersFolder then continue end
+
+        -- Optional secondary: flash all in-range killers when auto block fires
+        if FacingVisual.FlashOnBlock then
+            local pulse = FacingVisual._blockPulse or 0
+            if pulse ~= FacingVisual._lastBlockPulse then
+                FacingVisual._lastBlockPulse = pulse
                 for _, k in ipairs(KillersFolder:GetChildren()) do
-                    if k:IsA("Model") and k:FindFirstChild("HumanoidRootPart") then
-                        if FacingVisual.CircleEnabled then
-                            if not FacingVisual.circleVisuals[k] then addFacingCircle(k) end
-                            updateFacingCircle(k, FacingVisual.circleVisuals[k])
-                        end
-                        if FacingVisual.BoxEnabled then
+                    if k:IsA("Model") then
+                        local hrp = k:FindFirstChild("HumanoidRootPart")
+                        if hrp and inRange(hrp) then
                             if not FacingVisual.boxVisuals[k] then addFacingBox(k) end
-                            updateBoxVisual(k, FacingVisual.boxVisuals[k])
-                        end
-                        if FacingVisual.ShowRange then
-                            if not FacingVisual.rangeCircles[k] then addRangeCircle(k) end
-                            updateRangeCircle(k, FacingVisual.rangeCircles[k])
+                            fvTriggerFlash(k)
                         end
                     end
+                end
+            end
+        end
+
+        for _, k in ipairs(KillersFolder:GetChildren()) do
+            if k:IsA("Model") and k:FindFirstChild("HumanoidRootPart") then
+                if FacingVisual.CircleEnabled then
+                    if not FacingVisual.circleVisuals[k] then addFacingCircle(k) end
+                    updateFacingCircle(k, FacingVisual.circleVisuals[k])
+                end
+                if FacingVisual.BoxEnabled then
+                    if not FacingVisual.boxVisuals[k] then addFacingBox(k) end
+                    updateBoxVisual(k, FacingVisual.boxVisuals[k])
+                end
+                if FacingVisual.ShowRange then
+                    if not FacingVisual.rangeCircles[k] then addRangeCircle(k) end
+                    updateRangeCircle(k, FacingVisual.rangeCircles[k])
                 end
             end
         end
@@ -2110,7 +2243,6 @@ MiscTab:CreateSlider({
     callback = function(v) AUTOGEN.Cooldown = v end,
 })
 
--- Hitbox Expander (Reach) — sits inside Misc
 MiscTab:CreateSection({ name = "Hitbox Expander (Reach)" })
 MiscTab:CreateText({
     name = "Info",
@@ -2170,24 +2302,15 @@ MiscTab:CreateToggle({
 })
 MiscTab:CreateButton({
     name = "Preset: 1.25x (subtle)",
-    callback = function()
-        HBE.SizeMultiplier = 1.25
-        if HBE.Enabled then hbeApply() end
-    end,
+    callback = function() HBE.SizeMultiplier = 1.25 if HBE.Enabled then hbeApply() end end,
 })
 MiscTab:CreateButton({
     name = "Preset: 1.5x (recommended)",
-    callback = function()
-        HBE.SizeMultiplier = 1.5
-        if HBE.Enabled then hbeApply() end
-    end,
+    callback = function() HBE.SizeMultiplier = 1.5 if HBE.Enabled then hbeApply() end end,
 })
 MiscTab:CreateButton({
     name = "Preset: 2.0x (blatant)",
-    callback = function()
-        HBE.SizeMultiplier = 2.0
-        if HBE.Enabled then hbeApply() end
-    end,
+    callback = function() HBE.SizeMultiplier = 2.0 if HBE.Enabled then hbeApply() end end,
 })
 
 MiscTab:CreateSection({ name = "Utilities" })
@@ -2234,13 +2357,85 @@ MiscTab:CreateButton({
     end,
 })
 
--- ========== FACING VISUAL TAB ==========
+-- ========== FACING VISUAL ==========
 local FacingTab = Window:CreateTab({ name = "Facing Visual", icon = 4483362458 })
+
+FacingTab:CreateSection({ name = "Flashing Box (M1 Trigger)" })
+FacingTab:CreateText({
+    name = "Info",
+    text = "The box appears the instant a killer M1s (attack anim or sound fires) and fades out within FlashDuration + FlashFade. Invisible the rest of the time. Uses the game's own hitbox style so it blends in.",
+})
+FacingTab:CreateToggle({
+    name = "Enable Flashing Box",
+    value = false, flag = "FV_Box",
+    callback = function(v)
+        FacingVisual.BoxEnabled = v
+        if not v then
+            for k, data in pairs(FacingVisual.boxVisuals) do
+                if data.highlight and data.highlight.Parent then pcall(function() data.highlight:Destroy() end) end
+                if data.part and data.part.Parent then pcall(function() data.part:Destroy() end) end
+            end
+            FacingVisual.boxVisuals = {}
+        end
+    end,
+})
+FacingTab:CreateToggle({
+    name = "Flash on Killer M1",
+    value = true, flag = "FV_FlashM1",
+    callback = function(v) FacingVisual.FlashOnKillerM1 = v end,
+})
+
+FacingTab:CreateSection({ name = "Flash Timing" })
+FacingTab:CreateSlider({
+    name = "Flash Duration", range = { 0.05, 1.0 }, increment = 0.01, suffix = "s",
+    value = FacingVisual.FlashDuration, flag = "FV_FlashDur",
+    callback = function(v) FacingVisual.FlashDuration = v end,
+})
+FacingTab:CreateSlider({
+    name = "Fade-Out Time", range = { 0.0, 1.0 }, increment = 0.01, suffix = "s",
+    value = FacingVisual.FlashFade, flag = "FV_FlashFade",
+    callback = function(v) FacingVisual.FlashFade = v end,
+})
+FacingTab:CreateText({
+    name = "Timing Tip",
+    text = "Default 0.25s + 0.15s matches the length of most M1 swings. Lower for a quicker flicker, raise to keep it visible longer.",
+})
+
+FacingTab:CreateSection({ name = "Secondary Triggers (optional)" })
+FacingTab:CreateToggle({
+    name = "Flash on Enter Range", value = false, flag = "FV_FlashEnter",
+    callback = function(v) FacingVisual.FlashOnEnterRange = v end,
+})
+FacingTab:CreateToggle({
+    name = "Flash on Facing Flip", value = false, flag = "FV_FlashFlip",
+    callback = function(v) FacingVisual.FlashOnFacingFlip = v end,
+})
+FacingTab:CreateToggle({
+    name = "Flash on Auto Block Fire", value = false, flag = "FV_FlashBlock",
+    callback = function(v) FacingVisual.FlashOnBlock = v end,
+})
+
+FacingTab:CreateSection({ name = "Box Shape" })
+FacingTab:CreateSlider({
+    name = "Box Height", range = { 2, 16 }, increment = 0.5, suffix = " studs",
+    value = FacingVisual.BoxHeight, flag = "FV_BoxHeight",
+    callback = function(v) FacingVisual.BoxHeight = v end,
+})
+FacingTab:CreateSlider({
+    name = "Box Bright Transparency", range = { 0, 0.95 }, increment = 0.05,
+    value = FacingVisual.BoxFill, flag = "FV_BoxFill",
+    callback = function(v) FacingVisual.BoxFill = v end,
+})
+FacingTab:CreateSlider({
+    name = "Box Max Angle", range = { 20, 85 }, increment = 1, suffix = "°",
+    value = FacingVisual.BoxMaxAngle, flag = "FV_BoxMaxAngle",
+    callback = function(v) FacingVisual.BoxMaxAngle = v end,
+})
 
 FacingTab:CreateSection({ name = "Circle Visual" })
 FacingTab:CreateText({
     name = "Info",
-    text = "Cylinder under each killer. Radius shrinks as FacingDot gets stricter. Color reflects the exact state Auto Block will see.",
+    text = "Persistent cylinder under each killer. Radius shrinks as FacingDot gets stricter.",
 })
 FacingTab:CreateToggle({
     name = "Enable Circle Visual",
@@ -2252,27 +2447,6 @@ FacingTab:CreateToggle({
                 pcall(function() c:Destroy() end)
             end
             FacingVisual.circleVisuals = {}
-        end
-    end,
-})
-
-FacingTab:CreateSection({ name = "Box / Cone Visual" })
-FacingTab:CreateText({
-    name = "Info",
-    text = "Draws the FacingDot cone in front of each killer. Half-angle = acos(FacingDot). Anything inside the cone = facing check passes.",
-})
-FacingTab:CreateToggle({
-    name = "Enable Box Visual",
-    value = false, flag = "FV_Box",
-    callback = function(v)
-        FacingVisual.BoxEnabled = v
-        if not v then
-            for k, data in pairs(FacingVisual.boxVisuals) do
-                for _, p in ipairs(data.parts) do
-                    if p and p.Parent then pcall(function() p:Destroy() end) end
-                end
-            end
-            FacingVisual.boxVisuals = {}
         end
     end,
 })
@@ -2309,11 +2483,35 @@ FacingTab:CreateColorPicker({
     callback = function(c) FacingVisual.OutRangeColor = c end,
 })
 
+FacingTab:CreateSection({ name = "Advanced" })
+FacingTab:CreateButton({
+    name = "Re-sniff game box style",
+    callback = function()
+        FacingVisual.GameBoxStyle = fvSniffGameBoxStyle()
+        Window:Notify({ title = "Facing Visual", content = "Re-sampled game hitbox style.", duration = 3 })
+    end,
+})
+FacingTab:CreateButton({
+    name = "Force flash now (all killers in range)",
+    callback = function()
+        if not KillersFolder then return end
+        for _, k in ipairs(KillersFolder:GetChildren()) do
+            if k:IsA("Model") then
+                local hrp = k:FindFirstChild("HumanoidRootPart")
+                if hrp and inRange(hrp) then
+                    if not FacingVisual.boxVisuals[k] then addFacingBox(k) end
+                    fvTriggerFlash(k)
+                end
+            end
+        end
+    end,
+})
+
 task.wait(0.5)
 pcall(function()
     Window:Notify({
         title = "Hunter Hub",
-        content = "Loaded. Hitbox expander now in Misc tab. Facing Visual tab added.",
+        content = "Loaded. Box now flashes on killer M1. Toggle 'Enable Flashing Box' in Facing Visual tab.",
         duration = 5,
     })
 end)
